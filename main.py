@@ -89,7 +89,7 @@ Return ONLY a valid JSON object in this exact format (no markdown, no extra text
   "search_summary": "Brief summary of the search results and quality of matches found"
 }}
 
-Find {filters.quantity} REAL creators. Use web search to verify they exist and match the criteria."""
+Find {filters.quantity} REAL creators. You MUST respond with ONLY the JSON object, no explanations, no text before or after. Start your response with {{ and end with }}."""
     return prompt
 
 @app.post("/search", response_model=SearchResponse)
