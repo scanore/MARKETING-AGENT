@@ -106,7 +106,7 @@ async def search_influencers(filters: SearchFilters):
         
         full_text = ""
         for block in response.content:
-            if hasattr(block, "text"):
+            if hasattr(block, "text") and block.text is not None:
                 full_text += block.text
         
         clean = full_text.strip()
