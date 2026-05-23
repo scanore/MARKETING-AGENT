@@ -157,7 +157,9 @@ async def export_influencers(filters: SearchFilters):
 
 @app.get("/")
 async def root():
-    return FileResponse("/Users/scr/mis-agentes/agente-marketing/static/index.html")
+    import os
+    base = os.path.dirname(os.path.abspath(__file__))
+    return FileResponse(os.path.join(base, "static", "index.html"))
 
 @app.get("/health")
 async def health():
