@@ -1,0 +1,148 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Influencer Finder — Novalyze</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  :root { --bg: #0a0a0f; --surface: #111118; --surface2: #18181f; --border: rgba(255,255,255,0.07); --border-active: rgba(120,100,255,0.5); --accent: #7864ff; --accent2: #b8acff; --text: #f0eeff; --muted: #888899; --green: #3be8b0; --amber: #f5c542; --radius: 12px; --radius-sm: 8px; }
+  body { font-family: 'DM Sans', sans-serif; background: var(--bg); color: var(--text); min-height: 100vh; overflow-x: hidden; }
+  body::before { content: ''; position: fixed; inset: 0; background-image: linear-gradient(rgba(120,100,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(120,100,255,0.03) 1px, transparent 1px); background-size: 48px 48px; pointer-events: none; z-index: 0; }
+  .glow { position: fixed; width: 600px; height: 600px; border-radius: 50%; background: radial-gradient(circle, rgba(120,100,255,0.08) 0%, transparent 70%); top: -200px; left: -100px; pointer-events: none; z-index: 0; }
+  .container { position: relative; z-index: 1; max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+  header { border-bottom: 1px solid var(--border); padding: 20px 0; position: sticky; top: 0; background: rgba(10,10,15,0.85); backdrop-filter: blur(12px); z-index: 100; }
+  .header-inner { display: flex; align-items: center; justify-content: space-between; }
+  .logo { display: flex; align-items: center; gap: 10px; }
+  .logo-mark { width: 32px; height: 32px; border-radius: 8px; background: linear-gradient(135deg, var(--accent), #b06fff); display: flex; align-items: center; justify-content: center; font-family: 'Syne', sans-serif; font-weight: 800; font-size: 14px; color: #fff; }
+  .logo-text { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 16px; }
+  .logo-text span { color: var(--muted); font-weight: 400; }
+  .badge-a { padding: 4px 12px; border-radius: 20px; font-size: 11px; font-weight: 500; background: rgba(59,232,176,0.12); color: var(--green); border: 1px solid rgba(59,232,176,0.2); letter-spacing: 0.5px; }
+  .hero { padding: 56px 0 40px; }
+  .hero h1 { font-family: 'Syne', sans-serif; font-weight: 800; font-size: clamp(32px, 5vw, 52px); line-height: 1.1; letter-spacing: -1px; margin-bottom: 12px; }
+  .hero h1 em { font-style: normal; color: var(--accent2); }
+  .hero p { color: var(--muted); font-size: 16px; max-width: 520px; line-height: 1.6; }
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 24px; padding-bottom: 80px; }
+  @media(max-width: 900px) { .layout { grid-template-columns: 1fr; } }
+  .panel { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 24px; height: fit-content; position: sticky; top: 80px; }
+  .panel-title { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 13px; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); margin-bottom: 24px; }
+  .field { margin-bottom: 20px; }
+  .field label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 8px; font-weight: 500; letter-spacing: 0.3px; }
+  .field label span { color: var(--accent2); }
+  input[type="text"], input[type="number"], select { width: 100%; padding: 10px 14px; background: var(--surface2); border: 1px solid var(--border); border-radius: var(--radius-sm); color: var(--text); font-size: 14px; font-family: 'DM Sans', sans-serif; outline: none; transition: border-color 0.2s; }
+  input:focus, select:focus { border-color: var(--border-active); }
+  select option { background: var(--surface2); }
+  .range-group { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+  .platforms { display: flex; gap: 8px; flex-wrap: wrap; }
+  .platform-btn { padding: 7px 14px; border-radius: 20px; font-size: 13px; cursor: pointer; border: 1px solid var(--border); background: transparent; color: var(--muted); transition: all 0.2s; font-family: 'DM Sans', sans-serif; font-weight: 500; }
+  .platform-btn.active { border-color: var(--accent); background: rgba(120,100,255,0.15); color: var(--accent2); }
+  .platform-btn:hover:not(.active) { border-color: rgba(255,255,255,0.2); color: var(--text); }
+  .optional-row { display: flex; gap: 10px; }
+  .optional-row .field { flex: 1; }
+  .divider { border: none; border-top: 1px solid var(--border); margin: 20px 0; }
+  .btn-search { width: 100%; padding: 14px; border-radius: var(--radius-sm); background: var(--accent); border: none; color: #fff; font-family: 'Syne', sans-serif; font-weight: 700; font-size: 15px; cursor: pointer; transition: all 0.2s; }
+  .btn-search:hover { background: #8f7aff; transform: translateY(-1px); }
+  .btn-search:disabled { opacity: 0.5; cursor: not-allowed; transform: none; }
+  .btn-export { padding: 10px 20px; border-radius: var(--radius-sm); background: transparent; border: 1px solid var(--border); color: var(--text); font-family: 'DM Sans', sans-serif; font-size: 13px; cursor: pointer; transition: all 0.2s; font-weight: 500; display: flex; align-items: center; gap: 8px; }
+  .btn-export:hover { border-color: rgba(255,255,255,0.25); background: var(--surface2); }
+  .results-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 12px; }
+  .results-meta { font-size: 14px; color: var(--muted); }
+  .results-meta strong { color: var(--text); }
+  .empty { text-align: center; padding: 80px 24px; border: 1px dashed var(--border); border-radius: var(--radius); }
+  .empty-icon { font-size: 48px; margin-bottom: 16px; }
+  .empty h3 { font-family: 'Syne', sans-serif; font-size: 18px; margin-bottom: 8px; }
+  .empty p { color: var(--muted); font-size: 14px; }
+  .loading { text-align: center; padding: 80px 24px; border: 1px solid var(--border); border-radius: var(--radius); }
+  .spinner { width: 40px; height: 40px; border-radius: 50%; border: 2px solid var(--border); border-top-color: var(--accent); animation: spin 0.8s linear infinite; margin: 0 auto 20px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+  .loading-text { color: var(--muted); font-size: 14px; }
+  .loading-text strong { color: var(--accent2); display: block; font-size: 16px; margin-bottom: 8px; }
+  .cards { display: flex; flex-direction: column; gap: 16px; }
+  .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--radius); padding: 20px 24px; transition: border-color 0.2s, transform 0.2s; animation: fadeUp 0.3s ease both; }
+  .card:hover { border-color: rgba(120,100,255,0.3); transform: translateY(-2px); }
+  @keyframes fadeUp { from { opacity: 0; transform: translateY(12px); } to { opacity: 1; transform: translateY(0); } }
+  .card-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; margin-bottom: 14px; }
+  .card-identity { display: flex; align-items: center; gap: 14px; }
+  .avatar { width: 44px; height: 44px; border-radius: 50%; background: linear-gradient(135deg, var(--accent), #b06fff); display: flex; align-items: center; justify-content: center; font-family: 'Syne', sans-serif; font-weight: 800; font-size: 16px; color: #fff; flex-shrink: 0; }
+  .card-name { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 16px; }
+  .card-handle { color: var(--muted); font-size: 13px; margin-top: 2px; }
+  .card-link { padding: 6px 14px; border-radius: 20px; background: rgba(120,100,255,0.12); border: 1px solid rgba(120,100,255,0.25); color: var(--accent2); font-size: 12px; font-weight: 500; text-decoration: none; white-space: nowrap; transition: all 0.2s; }
+  .card-link:hover { background: rgba(120,100,255,0.25); }
+  .card-stats { display: flex; gap: 24px; margin-bottom: 14px; flex-wrap: wrap; }
+  .stat { text-align: center; }
+  .stat-value { font-family: 'Syne', sans-serif; font-weight: 700; font-size: 18px; }
+  .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; letter-spacing: 0.3px; text-transform: uppercase; }
+  .stat.green .stat-value { color: var(--green); }
+  .stat.amber .stat-value { color: var(--amber); }
+  .stat.purple .stat-value { color: var(--accent2); }
+  .card-tags { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+  .tag { padding: 4px 10px; border-radius: 20px; font-size: 11px; font-weight: 500; background: var(--surface2); border: 1px solid var(--border); color: var(--muted); }
+  .tag.platform { background: rgba(120,100,255,0.1); border-color: rgba(120,100,255,0.2); color: var(--accent2); }
+  .card-desc { font-size: 13px; color: var(--muted); line-height: 1.6; margin-bottom: 8px; }
+  .card-fit { font-size: 13px; color: var(--green); padding: 8px 12px; background: rgba(59,232,176,0.07); border-radius: var(--radius-sm); border-left: 2px solid var(--green); }
+  .summary-box { background: rgba(120,100,255,0.07); border: 1px solid rgba(120,100,255,0.2); border-radius: var(--radius); padding: 16px 20px; margin-bottom: 20px; font-size: 14px; color: var(--accent2); line-height: 1.6; }
+  .provider-badge { display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 11px; background: rgba(59,232,176,0.08); border: 1px solid rgba(59,232,176,0.15); color: var(--green); }
+  .provider-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); }
+  .help { color: var(--muted); font-size: 11px; margin-top: 4px; }
+</style></head><body><div class="glow"></div><header><div class="container"><div class="header-inner"><div class="logo"><div class="logo-mark">N</div><div class="logo-text">Novalyze <span>/ Influencer Finder</span></div></div><div class="badge-a">● Opción A — Web Search</div></div></div></header><div class="container"><div class="hero"><h1>Encuentra <em>influencers</em><br>que realmente convierten</h1><p>Búsqueda inteligente con IA. Filtra por plataforma, nicho, seguidores, engagement y más. Exporta a CSV con un clic.</p></div><div class="layout"><aside><div class="panel"><div class="panel-title">Filtros de búsqueda</div><div class="field"><label>Plataforma</label><div class="platforms" id="platforms"><button class="platform-btn active" data-val="TikTok">TikTok</button><button class="platform-btn" data-val="Instagram">Instagram</button><button class="platform-btn" data-val="YouTube">YouTube</button></div></div><div class="field"><label>Nicho / Categoría <span>*</span></label><input type="text" id="niche" placeholder="ej: lifestyle, fitness, beauty..." /></div><div class="field"><label>País</label><select id="country"><option value="US">🇺🇸 United States</option><option value="UK">🇬🇧 United Kingdom</option><option value="CA">🇨🇦 Canada</option><option value="AU">🇦🇺 Australia</option><option value="MX">🇲🇽 Mexico</option><option value="CO">🇨🇴 Colombia</option><option value="ES">🇪🇸 Spain</option><option value="BR">🇧🇷 Brazil</option><option value="AR">🇦🇷 Argentina</option></select></div><div class="field"><label>Rango de seguidores</label><div class="range-group"><div><input type="number" id="min-followers" placeholder="Mínimo" value="20000" /><div class="help">mínimo</div></div><div><input type="number" id="max-followers" placeholder="Máximo" value="150000" /><div class="help">máximo</div></div></div></div><div class="field"><label>Vistas mínimas por video</label><input type="number" id="min-views" placeholder="ej: 10000" value="10000" /></div><hr class="divider"><div class="optional-row"><div class="field"><label>Engagement mínimo %</label><input type="number" id="engagement" placeholder="ej: 3.5" step="0.1" /><div class="help">opcional - Opción B: exacto</div></div><div class="field"><label>Edad mínima</label><input type="number" id="min-age" placeholder="ej: 35" /><div class="help">opcional</div></div></div><div class="field"><label>Keywords adicionales</label><input type="text" id="keywords" placeholder="ej: scoliosis, back pain, WFH..." /></div><div class="field"><label>Cantidad de resultados</label><select id="quantity"><option value="5">5 influencers</option><option value="10" selected>10 influencers</option><option value="15">15 influencers</option><option value="20">20 influencers</option></select></div><button class="btn-search" id="btn-search" onclick="runSearch()">Buscar influencers →</button></div></aside><main><div id="results-area"><div class="empty"><div class="empty-icon">🎯</div><h3>Configura tu búsqueda</h3><p>Ajusta los filtros y presiona "Buscar influencers" para encontrar creadores que encajan con tu campaña.</p></div></div></main></div></div><script>
+var selectedPlatform = 'TikTok';
+document.querySelectorAll('.platform-btn').forEach(function(btn) {
+  btn.addEventListener('click', function() {
+    document.querySelectorAll('.platform-btn').forEach(function(b) { b.classList.remove('active'); });
+    this.classList.add('active');
+    selectedPlatform = this.dataset.val;
+  });
+});
+function getFilters() {
+  return {
+    platform: selectedPlatform,
+    niche: document.getElementById('niche').value,
+    country: document.getElementById('country').value,
+    min_followers: parseInt(document.getElementById('min-followers').value) || 10000,
+    max_followers: parseInt(document.getElementById('max-followers').value) || 500000,
+    min_views: parseInt(document.getElementById('min-views').value) || 5000,
+    min_engagement: parseFloat(document.getElementById('engagement').value) || null,
+    min_age: parseInt(document.getElementById('min-age').value) || null,
+    keywords: document.getElementById('keywords').value || null,
+    quantity: parseInt(document.getElementById('quantity').value) || 10
+  };
+}
+function getInitials(n) { return n.split(' ').map(function(w){return w[0];}).join('').toUpperCase().slice(0,2); }
+function renderResults(data) {
+  var area = document.getElementById('results-area');
+  var cards = data.influencers.map(function(inf, i) {
+    return '<div class="card" style="animation-delay:' + (i*0.06) + 's"><div class="card-header"><div class="card-identity"><div class="avatar">' + getInitials(inf.name) + '</div><div><div class="card-name">' + inf.name + '</div><div class="card-handle">' + inf.handle + ' - ' + inf.country + '</div></div></div><a href="' + inf.profile_url + '" target="_blank" class="card-link">Ver perfil</a></div><div class="card-stats"><div class="stat purple"><div class="stat-value">' + inf.estimated_followers + '</div><div class="stat-label">Seguidores</div></div><div class="stat amber"><div class="stat-value">' + inf.estimated_views + '</div><div class="stat-label">Views promedio</div></div><div class="stat green"><div class="stat-value">' + inf.estimated_engagement + '</div><div class="stat-label">Engagement</div></div></div><div class="card-tags"><span class="tag platform">' + inf.platform + '</span><span class="tag">' + inf.niche + '</span></div><div class="card-desc">' + inf.content_style + '</div><div class="card-fit">' + inf.why_good_fit + '</div></div>';
+  }).join('');
+  area.innerHTML = '<div class="results-header"><div class="results-meta"><strong>' + data.influencers.length + ' influencers</strong> encontrados</div><div style="display:flex;gap:10px"><div class="provider-badge"><div class="provider-dot"></div>' + data.data_source + '</div><button class="btn-export" onclick="exportCSV()">Exportar CSV</button></div></div><div class="summary-box">' + data.search_summary + '</div><div class="cards">' + cards + '</div>';
+}
+async function runSearch() {
+  var niche = document.getElementById('niche').value.trim();
+  if (!niche) { document.getElementById('niche').style.borderColor='rgba(255,100,100,0.6)'; setTimeout(function(){document.getElementById('niche').style.borderColor='';},2000); return; }
+  var btn = document.getElementById('btn-search');
+  btn.disabled = true; btn.textContent = 'Buscando...';
+  document.getElementById('results-area').innerHTML = '<div class="loading"><div class="spinner"></div><div class="loading-text"><strong>Buscando con IA...</strong>Espera 20-40 segundos</div></div>';
+  try {
+    var res = await fetch('/search', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(getFilters())});
+    if (!res.ok) { var err = await res.json(); throw new Error(err.detail || 'Error'); }
+    renderResults(await res.json());
+  } catch(e) {
+    document.getElementById('results-area').innerHTML = '<div class="empty"><div class="empty-icon">error</div><h3>Error</h3><p style="color:#ff6b6b">' + e.message + '</p></div>';
+  } finally { btn.disabled=false; btn.textContent='Buscar influencers'; }
+}
+async function exportCSV() {
+  var btn = document.querySelector('.btn-export');
+  btn.disabled=true; btn.textContent='Generando...';
+  try {
+    var res = await fetch('/export', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(getFilters())});
+    var blob = await res.blob();
+    var url = URL.createObjectURL(blob);
+    var a = document.createElement('a'); a.href=url; a.download='influencers_novalyze_'+Date.now()+'.csv'; a.click();
+    URL.revokeObjectURL(url);
+  } catch(e) { alert('Error: '+e.message); }
+  finally { btn.textContent='Exportar CSV'; btn.disabled=false; }
+}
+</script>
+</body>
+</html>
