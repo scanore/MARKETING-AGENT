@@ -109,18 +109,21 @@ async def search_influencers(filters: SearchFilters):
             if hasattr(block, "text") and block.text is not None:
                 full_text += block.text
         
-        clean = full_text.strip()
-        # Remove markdown code blocks
+        if not full_text.strip():
+            raise HTTPException(status_code=500, detail="No response from AI model")
+        
         import re
+        clean = full_text.strip()
         clean = re.sub(r"```json\s*", "", clean)
         clean = re.sub(r"```\s*", "", clean)
         clean = clean.strip()
         
-        # Find JSON object
         start = clean.find("{")
         end = clean.rfind("}") + 1
         if start >= 0 and end > start:
             clean = clean[start:end]
+        else:
+            raise HTTPException(status_code=500, detail="No JSON found in response: " + clean[:200])
         
         data = json.loads(clean)
         
