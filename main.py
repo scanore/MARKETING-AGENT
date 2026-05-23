@@ -97,20 +97,56 @@ async def search_influencers(filters: SearchFilters):
     try:
         prompt = build_search_prompt(filters)
         
-        response = client.messages.create(
+        # Step 1: Search with web search tool
+        search_response = client.messages.create(
             model="claude-opus-4-5",
             max_tokens=4000,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}]
         )
         
+        search_text = ""
+        for block in search_response.content:
+            if hasattr(block, "text") and block.text is not None:
+                search_text += block.text
+        
+        # Step 2: Format as JSON
+        format_prompt = f"""Based on this research about influencers:
+
+{search_text}
+
+Now format this as a JSON object with EXACTLY this structure, no other text:
+{{
+  "influencers": [
+    {{
+      "name": "Creator Name",
+      "handle": "@username",
+      "platform": "{filters.platform}",
+      "niche": "niche",
+      "estimated_followers": "50K",
+      "estimated_views": "15K avg",
+      "estimated_engagement": "4.5%",
+      "country": "{filters.country}",
+      "profile_url": "https://tiktok.com/@username",
+      "content_style": "Description of content",
+      "why_good_fit": "Why they match"
+    }}
+  ],
+  "search_summary": "Brief summary"
+}}
+
+Return ONLY the JSON, nothing else."""
+
+        format_response = client.messages.create(
+            model="claude-opus-4-5",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": format_prompt}]
+        )
+        
         full_text = ""
-        for block in response.content:
+        for block in format_response.content:
             if hasattr(block, "text") and block.text is not None:
                 full_text += block.text
-        
-        if not full_text.strip():
-            raise HTTPException(status_code=500, detail="No response from AI model")
         
         import re
         clean = full_text.strip()
@@ -123,7 +159,7 @@ async def search_influencers(filters: SearchFilters):
         if start >= 0 and end > start:
             clean = clean[start:end]
         else:
-            raise HTTPException(status_code=500, detail="No JSON found in response: " + clean[:200])
+            raise HTTPException(status_code=500, detail="No JSON found: " + clean[:200])
         
         data = json.loads(clean)
         
