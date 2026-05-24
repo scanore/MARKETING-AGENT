@@ -89,7 +89,7 @@ Return ONLY a valid JSON object in this exact format (no markdown, no extra text
   "search_summary": "Brief summary of the search results and quality of matches found"
 }}
 
-Find {filters.quantity} REAL creators. You MUST respond with ONLY the JSON object, no explanations, no text before or after. Start your response with {{ and end with }}."""
+CRITICAL: Only include creators you actually found with verifiable web data. If follower count is not within {filters.min_followers:,}-{filters.max_followers:,}, exclude them. Return fewer real creators rather than invented ones. Every creator must have a real working URL. Respond with ONLY the JSON object."""
     return prompt
 
 @app.post("/search", response_model=SearchResponse)
