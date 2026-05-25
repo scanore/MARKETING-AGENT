@@ -26,7 +26,7 @@ APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN")
 
 # Actor IDs
 TIKTOK_ACTOR = "clockworks/free-tiktok-scraper"
-INSTAGRAM_ACTOR = "apify/instagram-hashtag-scraper"
+INSTAGRAM_ACTOR = "apify/instagram-scraper"
 
 
 class SearchFilters(BaseModel):
@@ -121,7 +121,9 @@ async def fetch_instagram_data(niche: str, quantity: int) -> list:
         INSTAGRAM_ACTOR,
         {
             "hashtags": [hashtag],
+            "resultsType": "posts",
             "resultsLimit": min(quantity * 5, 100),
+            "addParentData": True,
         },
         max_items=quantity * 5,
     )
