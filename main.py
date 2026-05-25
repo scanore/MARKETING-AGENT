@@ -28,7 +28,6 @@ APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN")
 # Actor IDs
 TIKTOK_ACTOR = "GdWCkxBtKWOsKjdch"
 INSTAGRAM_ACTOR = "shu8hvrXbJbY3Eb9W"
-INSTAGRAM_PROFILE_ACTOR = "apify/instagram-profile-scraper"
 
 
 class SearchFilters(BaseModel):
@@ -99,28 +98,27 @@ async def run_apify_actor(actor_id: str, input_data: dict, max_items: int = 50) 
 
 
 async def fetch_instagram_profiles(usernames: list) -> dict:
-    """Fetch real follower counts for a list of Instagram usernames."""
+    """Fetch real follower counts using the main Instagram scraper on profile URLs."""
     if not usernames:
         return {}
     try:
-        urls = [f"https://www.instagram.com/{u}/" for u in usernames[:20]]
+        urls = [f"https://www.instagram.com/{u}/" for u in usernames[:15]]
         items = await run_apify_actor(
-            INSTAGRAM_PROFILE_ACTOR,
+            INSTAGRAM_ACTOR,
             {
-                "usernames": usernames[:20],
+                "directUrls": urls,
                 "resultsType": "details",
+                "resultsLimit": 1,
             },
-            max_items=20,
+            max_items=15,
         )
         result = {}
         for item in items:
-            username = item.get("username", "")
+            username = item.get("username", "") or item.get("ownerUsername", "")
             if username:
                 result[username] = {
-                    "followers": item.get("followersCount", 0),
-                    "display_name": item.get("fullName", username),
-                    "verified": item.get("verified", False),
-                    "biography": item.get("biography", ""),
+                    "followers": item.get("followersCount", 0) or item.get("ownerFollowersCount", 0),
+                    "display_name": item.get("fullName", "") or item.get("ownerFullName", username),
                 }
         return result
     except Exception:
