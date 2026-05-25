@@ -249,12 +249,12 @@ FILTERS TO APPLY:
 - Quantity needed: {filters.quantity}
 
 TASK:
-1. Use the REAL followers count from the data (field: followers) - do NOT estimate it
-2. Use avg_plays for views, engagement_rate for engagement - these are already calculated
-3. Filter creators by the criteria above
+1. Use avg_plays for views, engagement_rate for engagement - these are already calculated
+2. If followers field is 0 or missing, IGNORE the followers filter and rank by engagement_rate instead
+3. Filter by avg_plays >= {filters.min_views} if possible, otherwise include best available
 4. Pick the top {filters.quantity} best matches ranked by engagement_rate
-5. If fewer than {filters.quantity} match strictly, include closest matches with a note
-6. Format followers as "1.2M", "45K", etc.
+5. Format followers as "N/A" if 0, otherwise "1.2M", "45K", etc.
+6. Always return results even if filters are not perfectly met - note any compromises
 
 Return ONLY a valid JSON object, no markdown, no extra text:
 {{
