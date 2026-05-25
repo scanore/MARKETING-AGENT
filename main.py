@@ -120,12 +120,10 @@ async def fetch_instagram_data(niche: str, quantity: int) -> list:
     return await run_apify_actor(
         INSTAGRAM_ACTOR,
         {
-            "search": hashtag,
-            "searchType": "hashtag",
-            "searchLimit": min(quantity * 5, 100),
+            "directUrls": [f"https://www.instagram.com/explore/tags/{hashtag}/"],
             "resultsType": "posts",
             "resultsLimit": min(quantity * 5, 100),
-            "addParentData": False,
+            "addParentData": True,
         },
         max_items=quantity * 5,
     )
@@ -351,9 +349,18 @@ async def search_influencers(filters: SearchFilters):
         if APIFY_TOKEN and filters.platform in ("TikTok", "Instagram"):
             if filters.platform == "TikTok":
                 raw_items = await fetch_tiktok_data(filters.niche, filters.quantity)
+                # Debug: log first raw item keys
+                if raw_items:
+                    import logging
+                    logging.warning(f"TikTok raw item keys: {list(raw_items[0].keys())}")
+                    logging.warning(f"TikTok authorMeta: {raw_items[0].get('authorMeta', 'MISSING')}")
                 normalized = normalize_tiktok(raw_items)
             else:
                 raw_items = await fetch_instagram_data(filters.niche, filters.quantity)
+                if raw_items:
+                    import logging
+                    logging.warning(f"Instagram raw item keys: {list(raw_items[0].keys())}")
+                    logging.warning(f"Instagram ownerUsername: {raw_items[0].get('ownerUsername', 'MISSING')}")
                 normalized = normalize_instagram(raw_items)
 
             if normalized:
