@@ -28,7 +28,7 @@ APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN")
 # Actor IDs
 TIKTOK_ACTOR = "GdWCkxBtKWOsKjdch"
 INSTAGRAM_ACTOR = "shu8hvrXbJbY3Eb9W"
-INSTAGRAM_PROFILE_ACTOR = "dSCLg0C3YEZ83HzYX"  # apify/instagram-profile-scraper
+INSTAGRAM_PROFILE_ACTOR = "apify/instagram-profile-scraper"
 
 
 class SearchFilters(BaseModel):
@@ -108,6 +108,7 @@ async def fetch_instagram_profiles(usernames: list) -> dict:
             INSTAGRAM_PROFILE_ACTOR,
             {
                 "usernames": usernames[:20],
+                "resultsType": "details",
             },
             max_items=20,
         )
