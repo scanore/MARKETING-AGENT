@@ -25,8 +25,8 @@ client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN")
 
 # Actor IDs
-TIKTOK_ACTOR = "clockworks/free-tiktok-scraper"
-INSTAGRAM_ACTOR = "apify/instagram-hashtag-scraper"
+TIKTOK_ACTOR = "GdWCkxBtKWOsKjdch"
+INSTAGRAM_ACTOR = "shu8hvrXbJbY3Eb9W"
 
 
 class SearchFilters(BaseModel):
@@ -120,8 +120,12 @@ async def fetch_instagram_data(niche: str, quantity: int) -> list:
     return await run_apify_actor(
         INSTAGRAM_ACTOR,
         {
-            "hashtags": [hashtag],
+            "search": hashtag,
+            "searchType": "hashtag",
+            "searchLimit": min(quantity * 5, 100),
+            "resultsType": "posts",
             "resultsLimit": min(quantity * 5, 100),
+            "addParentData": False,
         },
         max_items=quantity * 5,
     )
