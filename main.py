@@ -298,10 +298,13 @@ No @ symbol, just plain usernames."""
     except Exception:
         usernames = []
 
-    # Step 2: Verify real metrics with Apify
+    # Step 2: Verify real metrics with Apify (best effort)
     verified = {}
     if usernames and APIFY_TOKEN:
-        verified = await verify_instagram_profiles(usernames)
+        try:
+            verified = await verify_instagram_profiles(usernames)
+        except Exception:
+            verified = {}
 
     # Step 3: Claude formats final results with verified data
     format_prompt = f"""You are an influencer analyst for Instagram.
