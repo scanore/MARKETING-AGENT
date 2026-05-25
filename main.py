@@ -230,15 +230,18 @@ async def normalize_instagram_with_profiles(items: list) -> list:
             "comments": item.get("commentsCount", 0),
         })
 
-    # Fetch real follower counts for authors missing them
-    missing = [u for u, d in authors.items() if d["followers"] == 0]
-    if missing:
-        profile_data = await fetch_instagram_profiles(missing)
-        for username, profile in profile_data.items():
-            if username in authors:
-                authors[username]["followers"] = profile["followers"]
-                if profile["display_name"]:
-                    authors[username]["display_name"] = profile["display_name"]
+    # Fetch real follower counts for authors missing them (best effort, never crash)
+    try:
+        missing = [u for u, d in authors.items() if d["followers"] == 0]
+        if missing:
+            profile_data = await fetch_instagram_profiles(missing)
+            for username, profile in profile_data.items():
+                if username in authors:
+                    authors[username]["followers"] = profile["followers"]
+                    if profile["display_name"]:
+                        authors[username]["display_name"] = profile["display_name"]
+    except Exception:
+        pass  # Continue without follower data if profile lookup fails
 
     normalized = []
     for owner, data in authors.items():
