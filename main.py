@@ -11,6 +11,7 @@ import io
 import os
 import httpx
 import asyncio
+import re
 
 app = FastAPI(title="Agente de Marketing - Novalyze")
 
@@ -27,6 +28,7 @@ APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN")
 # Actor IDs
 TIKTOK_ACTOR = "GdWCkxBtKWOsKjdch"
 INSTAGRAM_ACTOR = "shu8hvrXbJbY3Eb9W"
+INSTAGRAM_PROFILE_ACTOR = "dSCLg0C3YEZ83HzYX"  # apify/instagram-profile-scraper
 
 
 class SearchFilters(BaseModel):
@@ -65,13 +67,10 @@ class SearchResponse(BaseModel):
 # ─── Apify helpers ────────────────────────────────────────────────────────────
 
 async def run_apify_actor(actor_id: str, input_data: dict, max_items: int = 50) -> list:
-    """Run an Apify actor and return dataset items."""
     base = "https://api.apify.com/v2"
-    headers = {"Content-Type": "application/json"}
     params = {"token": APIFY_TOKEN}
 
-    async with httpx.AsyncClient(timeout=120) as http:
-        # Start the run
+    async with httpx.AsyncClient(timeout=180) as http:
         run_resp = await http.post(
             f"{base}/acts/{actor_id}/runs",
             params=params,
@@ -82,8 +81,7 @@ async def run_apify_actor(actor_id: str, input_data: dict, max_items: int = 50) 
 
         run_id = run_resp.json()["data"]["id"]
 
-        # Poll until finished
-        for _ in range(30):
+        for _ in range(40):
             await asyncio.sleep(4)
             status_resp = await http.get(f"{base}/acts/{actor_id}/runs/{run_id}", params=params)
             status = status_resp.json()["data"]["status"]
@@ -92,13 +90,40 @@ async def run_apify_actor(actor_id: str, input_data: dict, max_items: int = 50) 
             if status in ("FAILED", "ABORTED", "TIMED-OUT"):
                 raise HTTPException(status_code=502, detail=f"Apify run {status}")
 
-        # Fetch dataset
         dataset_id = status_resp.json()["data"]["defaultDatasetId"]
         items_resp = await http.get(
             f"{base}/datasets/{dataset_id}/items",
             params={**params, "limit": max_items},
         )
         return items_resp.json()
+
+
+async def fetch_instagram_profiles(usernames: list) -> dict:
+    """Fetch real follower counts for a list of Instagram usernames."""
+    if not usernames:
+        return {}
+    try:
+        urls = [f"https://www.instagram.com/{u}/" for u in usernames[:20]]
+        items = await run_apify_actor(
+            INSTAGRAM_PROFILE_ACTOR,
+            {
+                "usernames": usernames[:20],
+            },
+            max_items=20,
+        )
+        result = {}
+        for item in items:
+            username = item.get("username", "")
+            if username:
+                result[username] = {
+                    "followers": item.get("followersCount", 0),
+                    "display_name": item.get("fullName", username),
+                    "verified": item.get("verified", False),
+                    "biography": item.get("biography", ""),
+                }
+        return result
+    except Exception:
+        return {}
 
 
 async def fetch_tiktok_data(niche: str, quantity: int) -> list:
@@ -130,7 +155,6 @@ async def fetch_instagram_data(niche: str, quantity: int) -> list:
 
 
 def normalize_tiktok(items: list) -> list:
-    """Convert TikTok Apify items to a unified format, grouping by author."""
     authors = {}
     for item in items:
         author = item.get("authorMeta", {})
@@ -146,7 +170,6 @@ def normalize_tiktok(items: list) -> list:
                 "profile_url": f"https://tiktok.com/@{username}",
                 "posts": [],
             }
-        # Keep highest fans count seen across posts
         fans = author.get("fans", 0)
         if fans > authors[username]["followers"]:
             authors[username]["followers"] = fans
@@ -180,8 +203,8 @@ def normalize_tiktok(items: list) -> list:
     return normalized
 
 
-def normalize_instagram(items: list) -> list:
-    """Convert Instagram Apify items to a unified format, grouping by author."""
+async def normalize_instagram_with_profiles(items: list) -> list:
+    """Group Instagram posts by author, then fetch real follower counts."""
     authors = {}
     for item in items:
         owner = item.get("ownerUsername", "") or item.get("owner", {}).get("username", "")
@@ -206,6 +229,16 @@ def normalize_instagram(items: list) -> list:
             "comments": item.get("commentsCount", 0),
         })
 
+    # Fetch real follower counts for authors missing them
+    missing = [u for u, d in authors.items() if d["followers"] == 0]
+    if missing:
+        profile_data = await fetch_instagram_profiles(missing)
+        for username, profile in profile_data.items():
+            if username in authors:
+                authors[username]["followers"] = profile["followers"]
+                if profile["display_name"]:
+                    authors[username]["display_name"] = profile["display_name"]
+
     normalized = []
     for owner, data in authors.items():
         posts = data["posts"]
@@ -228,10 +261,7 @@ def normalize_instagram(items: list) -> list:
     return normalized
 
 
-# ─── Claude analysis ──────────────────────────────────────────────────────────
-
 def analyze_with_claude(normalized_items: list, filters: SearchFilters) -> SearchResponse:
-    """Send real scraped data to Claude to filter and format influencers."""
     data_str = json.dumps(normalized_items[:60], ensure_ascii=False)
 
     prompt = f"""You are an influencer analyst. Below is REAL scraped data from {filters.platform} already grouped by creator.
@@ -249,12 +279,13 @@ FILTERS TO APPLY:
 - Quantity needed: {filters.quantity}
 
 TASK:
-1. Use avg_plays for views, engagement_rate for engagement - these are already calculated
-2. If followers field is 0 or missing, IGNORE the followers filter and rank by engagement_rate instead
-3. Filter by avg_plays >= {filters.min_views} if possible, otherwise include best available
-4. Pick the top {filters.quantity} best matches ranked by engagement_rate
-5. Format followers as "N/A" if 0, otherwise "1.2M", "45K", etc.
-6. Always return results even if filters are not perfectly met - note any compromises
+1. Use the REAL followers count from the data (field: followers) - do NOT estimate it
+2. Use avg_plays for views, engagement_rate for engagement - already calculated
+3. Filter creators by the criteria above
+4. If followers is 0, still include the creator but note it as "N/A"
+5. Pick the top {filters.quantity} best matches ranked by engagement_rate
+6. Format followers as "1.2M", "45K", "N/A" if 0
+7. Always return results even if filters are not perfectly met
 
 Return ONLY a valid JSON object, no markdown, no extra text:
 {{
@@ -273,7 +304,7 @@ Return ONLY a valid JSON object, no markdown, no extra text:
       "why_good_fit": "Why they match the filters"
     }}
   ],
-  "search_summary": "Brief summary: how many creators found, quality of matches, data source note"
+  "search_summary": "Brief summary: how many creators found, quality of matches"
 }}"""
 
     response = client.messages.create(
@@ -283,8 +314,6 @@ Return ONLY a valid JSON object, no markdown, no extra text:
     )
 
     full_text = "".join(b.text for b in response.content if hasattr(b, "text") and b.text)
-
-    import re
     clean = re.sub(r"```json\s*", "", full_text.strip())
     clean = re.sub(r"```\s*", "", clean).strip()
     start = clean.find("{")
@@ -345,27 +374,16 @@ CRITICAL: Only include creators you actually found with verifiable web data. Ret
 @app.post("/search", response_model=SearchResponse)
 async def search_influencers(filters: SearchFilters):
     try:
-        # Use Apify for TikTok and Instagram if token is available
         if APIFY_TOKEN and filters.platform in ("TikTok", "Instagram"):
             if filters.platform == "TikTok":
                 raw_items = await fetch_tiktok_data(filters.niche, filters.quantity)
-                # Debug: log first raw item keys
-                if raw_items:
-                    import logging
-                    logging.warning(f"TikTok raw item keys: {list(raw_items[0].keys())}")
-                    logging.warning(f"TikTok authorMeta: {raw_items[0].get('authorMeta', 'MISSING')}")
                 normalized = normalize_tiktok(raw_items)
             else:
                 raw_items = await fetch_instagram_data(filters.niche, filters.quantity)
-                if raw_items:
-                    import logging
-                    logging.warning(f"Instagram raw item keys: {list(raw_items[0].keys())}")
-                    logging.warning(f"Instagram ownerUsername: {raw_items[0].get('ownerUsername', 'MISSING')}")
-                normalized = normalize_instagram(raw_items)
+                normalized = await normalize_instagram_with_profiles(raw_items)
 
             if normalized:
                 return analyze_with_claude(normalized, filters)
-            # Fall through to web search if no data returned
 
         # Fallback: web search (YouTube or if Apify returned nothing)
         prompt = build_web_search_prompt(filters)
@@ -410,7 +428,6 @@ Return ONLY the JSON, nothing else."""
             messages=[{"role": "user", "content": format_prompt}],
         )
 
-        import re
         full_text = "".join(
             b.text for b in format_response.content if hasattr(b, "text") and b.text
         )
@@ -461,8 +478,8 @@ async def health():
     return {
         "status": "ok",
         "agent": "marketing",
-        "version": "2.0.0",
-        "provider": "Apify (TikTok + Instagram) + WebSearch (YouTube)",
+        "version": "3.0.0",
+        "provider": "Apify (TikTok + Instagram con perfiles reales) + WebSearch (YouTube)",
         "apify_connected": bool(APIFY_TOKEN),
     }
 
