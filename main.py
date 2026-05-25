@@ -25,7 +25,6 @@ app.add_middleware(
 client = anthropic.Anthropic(api_key=os.environ.get("ANTHROPIC_API_KEY"))
 APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN")
 
-# Actor IDs
 TIKTOK_ACTOR = "GdWCkxBtKWOsKjdch"
 INSTAGRAM_ACTOR = "shu8hvrXbJbY3Eb9W"
 
@@ -97,8 +96,22 @@ async def run_apify_actor(actor_id: str, input_data: dict, max_items: int = 50) 
         return items_resp.json()
 
 
-async def fetch_instagram_profiles(usernames: list) -> dict:
-    """Fetch real follower counts using the main Instagram scraper on profile URLs."""
+async def fetch_tiktok_data(niche: str, quantity: int) -> list:
+    hashtag = niche.strip().lstrip("#").replace(" ", "")
+    return await run_apify_actor(
+        TIKTOK_ACTOR,
+        {
+            "hashtags": [hashtag],
+            "resultsPerPage": min(quantity * 5, 100),
+            "shouldDownloadVideos": False,
+            "shouldDownloadCovers": False,
+        },
+        max_items=quantity * 5,
+    )
+
+
+async def verify_instagram_profiles(usernames: list) -> dict:
+    """Verify real follower counts by scraping each profile URL."""
     if not usernames:
         return {}
     try:
@@ -119,38 +132,12 @@ async def fetch_instagram_profiles(usernames: list) -> dict:
                 result[username] = {
                     "followers": item.get("followersCount", 0) or item.get("ownerFollowersCount", 0),
                     "display_name": item.get("fullName", "") or item.get("ownerFullName", username),
+                    "posts_count": item.get("postsCount", 0),
+                    "biography": item.get("biography", ""),
                 }
         return result
     except Exception:
         return {}
-
-
-async def fetch_tiktok_data(niche: str, quantity: int) -> list:
-    hashtag = niche.strip().lstrip("#").replace(" ", "")
-    return await run_apify_actor(
-        TIKTOK_ACTOR,
-        {
-            "hashtags": [hashtag],
-            "resultsPerPage": min(quantity * 5, 100),
-            "shouldDownloadVideos": False,
-            "shouldDownloadCovers": False,
-        },
-        max_items=quantity * 5,
-    )
-
-
-async def fetch_instagram_data(niche: str, quantity: int) -> list:
-    hashtag = niche.strip().lstrip("#").replace(" ", "")
-    return await run_apify_actor(
-        INSTAGRAM_ACTOR,
-        {
-            "directUrls": [f"https://www.instagram.com/explore/tags/{hashtag}/"],
-            "resultsType": "posts",
-            "resultsLimit": min(quantity * 5, 100),
-            "addParentData": True,
-        },
-        max_items=quantity * 5,
-    )
 
 
 def normalize_tiktok(items: list) -> list:
@@ -202,110 +189,44 @@ def normalize_tiktok(items: list) -> list:
     return normalized
 
 
-async def normalize_instagram_with_profiles(items: list) -> list:
-    """Group Instagram posts by author, then fetch real follower counts."""
-    authors = {}
-    for item in items:
-        owner = item.get("ownerUsername", "") or item.get("owner", {}).get("username", "")
-        if not owner:
-            continue
-        if owner not in authors:
-            authors[owner] = {
-                "platform": "Instagram",
-                "username": owner,
-                "display_name": item.get("ownerFullName", owner),
-                "followers": item.get("ownerFollowersCount", 0),
-                "profile_url": f"https://instagram.com/{owner}",
-                "posts": [],
-            }
-        followers = item.get("ownerFollowersCount", 0)
-        if followers > authors[owner]["followers"]:
-            authors[owner]["followers"] = followers
-        authors[owner]["posts"].append({
-            "text": item.get("caption", "") or item.get("alt", ""),
-            "plays": item.get("videoViewCount", 0) or item.get("likesCount", 0),
-            "likes": item.get("likesCount", 0),
-            "comments": item.get("commentsCount", 0),
-        })
+def analyze_tiktok_with_claude(normalized: list, filters: SearchFilters) -> SearchResponse:
+    data_str = json.dumps(normalized[:60], ensure_ascii=False)
+    prompt = f"""You are an influencer analyst. Below is REAL scraped TikTok data grouped by creator.
 
-    # Fetch real follower counts for authors missing them (best effort, never crash)
-    try:
-        missing = [u for u, d in authors.items() if d["followers"] == 0]
-        if missing:
-            profile_data = await fetch_instagram_profiles(missing)
-            for username, profile in profile_data.items():
-                if username in authors:
-                    authors[username]["followers"] = profile["followers"]
-                    if profile["display_name"]:
-                        authors[username]["display_name"] = profile["display_name"]
-    except Exception:
-        pass  # Continue without follower data if profile lookup fails
-
-    normalized = []
-    for owner, data in authors.items():
-        posts = data["posts"]
-        avg_plays = int(sum(p["plays"] for p in posts) / len(posts)) if posts else 0
-        avg_likes = int(sum(p["likes"] for p in posts) / len(posts)) if posts else 0
-        avg_comments = int(sum(p["comments"] for p in posts) / len(posts)) if posts else 0
-        engagement = round((avg_likes + avg_comments) / avg_plays * 100, 2) if avg_plays > 0 else 0
-        normalized.append({
-            "platform": "Instagram",
-            "username": owner,
-            "display_name": data["display_name"],
-            "followers": data["followers"],
-            "avg_plays": avg_plays,
-            "avg_likes": avg_likes,
-            "avg_comments": avg_comments,
-            "engagement_rate": engagement,
-            "sample_captions": [p["text"][:100] for p in posts[:3]],
-            "profile_url": data["profile_url"],
-        })
-    return normalized
-
-
-def analyze_with_claude(normalized_items: list, filters: SearchFilters) -> SearchResponse:
-    data_str = json.dumps(normalized_items[:60], ensure_ascii=False)
-
-    prompt = f"""You are an influencer analyst. Below is REAL scraped data from {filters.platform} already grouped by creator.
-
-REAL DATA (each entry is one unique creator with aggregated metrics):
+REAL DATA:
 {data_str}
 
-FILTERS TO APPLY:
-- Platform: {filters.platform}
-- Country preference: {filters.country}
+FILTERS:
 - Min followers: {filters.min_followers:,}
 - Max followers: {filters.max_followers:,}
-- Min avg views/plays: {filters.min_views:,}
-{f'- Min engagement rate: {filters.min_engagement}%' if filters.min_engagement else ''}
-- Quantity needed: {filters.quantity}
+- Min avg plays: {filters.min_views:,}
+{f'- Min engagement: {filters.min_engagement}%' if filters.min_engagement else ''}
+- Quantity: {filters.quantity}
 
 TASK:
-1. Use the REAL followers count from the data (field: followers) - do NOT estimate it
-2. Use avg_plays for views, engagement_rate for engagement - already calculated
-3. ALWAYS return the top {filters.quantity} creators ranked by engagement_rate, even if none meet the filters perfectly
+1. Use REAL followers from data - do NOT estimate
+2. Always return top {filters.quantity} ranked by engagement_rate even if filters not perfectly met
+3. Format followers as "1.2M", "45K", "N/A" if 0
 4. Note in why_good_fit if they fall short of any filter
-5. Format followers as "1.2M", "45K", "N/A" if 0
-6. Never return 0 results - always pick the best available from the dataset
 
-Return ONLY a valid JSON object, no markdown, no extra text:
+Return ONLY valid JSON:
 {{
   "influencers": [
     {{
       "name": "Display Name",
       "handle": "@username",
-      "platform": "{filters.platform}",
+      "platform": "TikTok",
       "niche": "{filters.niche}",
       "estimated_followers": "45K",
       "estimated_views": "12K avg",
       "estimated_engagement": "4.2%",
       "country": "{filters.country}",
-      "profile_url": "https://{'tiktok' if filters.platform == 'TikTok' else 'instagram'}.com/@username",
-      "content_style": "Brief description based on their post captions",
-      "why_good_fit": "Why they match the filters"
+      "profile_url": "https://tiktok.com/@username",
+      "content_style": "Description from captions",
+      "why_good_fit": "Why they match"
     }}
   ],
-  "search_summary": "Brief summary: how many creators found, quality of matches"
+  "search_summary": "Summary of results"
 }}"""
 
     response = client.messages.create(
@@ -313,20 +234,135 @@ Return ONLY a valid JSON object, no markdown, no extra text:
         max_tokens=4000,
         messages=[{"role": "user", "content": prompt}],
     )
-
     full_text = "".join(b.text for b in response.content if hasattr(b, "text") and b.text)
     clean = re.sub(r"```json\s*", "", full_text.strip())
     clean = re.sub(r"```\s*", "", clean).strip()
     start = clean.find("{")
     end = clean.rfind("}") + 1
     if start < 0 or end <= start:
-        raise HTTPException(status_code=500, detail="No JSON in Claude response: " + clean[:200])
-
+        raise HTTPException(status_code=500, detail="No JSON: " + clean[:200])
     data = json.loads(clean[start:end])
     return SearchResponse(
         influencers=data.get("influencers", []),
         search_summary=data.get("search_summary", "Búsqueda completada."),
-        data_source=f"Apify Real Data ({filters.platform})",
+        data_source="Apify Real Data (TikTok)",
+    )
+
+
+async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
+    """Step 1: Web search finds big influencers. Step 2: Apify verifies real metrics."""
+
+    # Step 1: Use web search to find Instagram influencers in the niche
+    follower_range = f"{filters.min_followers:,} - {filters.max_followers:,}"
+    search_prompt = f"""Find {filters.quantity * 2} real Instagram influencers in the "{filters.niche}" niche from {filters.country}.
+Requirements: {follower_range} followers, active accounts.
+Return ONLY a JSON object with this structure, no markdown:
+{{
+  "usernames": ["username1", "username2", "username3"]
+}}
+Only real Instagram usernames, no @ symbol, just the username."""
+
+    search_response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=1000,
+        tools=[{"type": "web_search_20250305", "name": "web_search"}],
+        messages=[{"role": "user", "content": search_prompt}],
+    )
+
+    search_text = "".join(
+        b.text for b in search_response.content if hasattr(b, "text") and b.text
+    )
+
+    # Extract usernames from response
+    extract_prompt = f"""From this text, extract Instagram usernames and return ONLY a JSON object:
+{search_text}
+
+Return ONLY:
+{{"usernames": ["username1", "username2"]}}
+No @ symbol, just plain usernames."""
+
+    extract_response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=500,
+        messages=[{"role": "user", "content": extract_prompt}],
+    )
+    extract_text = "".join(b.text for b in extract_response.content if hasattr(b, "text") and b.text)
+
+    try:
+        clean = re.sub(r"```json\s*", "", extract_text.strip())
+        clean = re.sub(r"```\s*", "", clean).strip()
+        start = clean.find("{")
+        end = clean.rfind("}") + 1
+        usernames_data = json.loads(clean[start:end])
+        usernames = usernames_data.get("usernames", [])[:15]
+    except Exception:
+        usernames = []
+
+    # Step 2: Verify real metrics with Apify
+    verified = {}
+    if usernames and APIFY_TOKEN:
+        verified = await verify_instagram_profiles(usernames)
+
+    # Step 3: Claude formats final results with verified data
+    format_prompt = f"""You are an influencer analyst for Instagram.
+
+SEARCH CRITERIA:
+- Niche: {filters.niche}
+- Country: {filters.country}
+- Followers: {follower_range}
+- Min views: {filters.min_views:,}
+- Quantity: {filters.quantity}
+
+FOUND USERNAMES FROM WEB SEARCH:
+{json.dumps(usernames, ensure_ascii=False)}
+
+VERIFIED REAL DATA FROM APIFY (may be partial):
+{json.dumps(verified, ensure_ascii=False)}
+
+TASK:
+1. For usernames WITH verified data: use the real followers/metrics from Apify
+2. For usernames WITHOUT verified data: use web search knowledge to estimate
+3. Always return {filters.quantity} results
+4. Rank by best fit to criteria
+
+Return ONLY valid JSON:
+{{
+  "influencers": [
+    {{
+      "name": "Full Name",
+      "handle": "@username",
+      "platform": "Instagram",
+      "niche": "{filters.niche}",
+      "estimated_followers": "450K",
+      "estimated_views": "25K avg",
+      "estimated_engagement": "3.8%",
+      "country": "{filters.country}",
+      "profile_url": "https://instagram.com/username",
+      "content_style": "Description of content style",
+      "why_good_fit": "Why they match the criteria"
+    }}
+  ],
+  "search_summary": "X influencers found, Y verified with real data from Apify"
+}}"""
+
+    final_response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=4000,
+        messages=[{"role": "user", "content": format_prompt}],
+    )
+    final_text = "".join(b.text for b in final_response.content if hasattr(b, "text") and b.text)
+    clean = re.sub(r"```json\s*", "", final_text.strip())
+    clean = re.sub(r"```\s*", "", clean).strip()
+    start = clean.find("{")
+    end = clean.rfind("}") + 1
+    if start < 0 or end <= start:
+        raise HTTPException(status_code=500, detail="No JSON: " + clean[:200])
+    data = json.loads(clean[start:end])
+    verified_count = len(verified)
+    return SearchResponse(
+        influencers=data.get("influencers", []),
+        search_summary=data.get("search_summary", "Búsqueda completada."),
+        data_source=f"Web Search + Apify Verificado ({verified_count} perfiles)",
     )
 
 
@@ -347,7 +383,7 @@ SEARCH CRITERIA:
 
 Search the web and find REAL {filters.platform} influencers/creators that match these criteria.
 
-Return ONLY a valid JSON object in this exact format (no markdown, no extra text):
+Return ONLY a valid JSON object (no markdown):
 {{
   "influencers": [
     {{
@@ -364,10 +400,9 @@ Return ONLY a valid JSON object in this exact format (no markdown, no extra text
       "why_good_fit": "Why they match the search criteria"
     }}
   ],
-  "search_summary": "Brief summary of the search results and quality of matches found"
+  "search_summary": "Brief summary of results"
 }}
-
-CRITICAL: Only include creators you actually found with verifiable web data. Return fewer real creators rather than invented ones. Respond with ONLY the JSON object."""
+CRITICAL: Only real creators with verifiable data. Respond with ONLY the JSON."""
 
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
@@ -375,16 +410,14 @@ CRITICAL: Only include creators you actually found with verifiable web data. Ret
 @app.post("/search", response_model=SearchResponse)
 async def search_influencers(filters: SearchFilters):
     try:
-        if APIFY_TOKEN and filters.platform in ("TikTok", "Instagram"):
-            if filters.platform == "TikTok":
-                raw_items = await fetch_tiktok_data(filters.niche, filters.quantity)
-                normalized = normalize_tiktok(raw_items)
-            else:
-                raw_items = await fetch_instagram_data(filters.niche, filters.quantity)
-                normalized = await normalize_instagram_with_profiles(raw_items)
-
+        if filters.platform == "TikTok" and APIFY_TOKEN:
+            raw_items = await fetch_tiktok_data(filters.niche, filters.quantity)
+            normalized = normalize_tiktok(raw_items)
             if normalized:
-                return analyze_with_claude(normalized, filters)
+                return analyze_tiktok_with_claude(normalized, filters)
+
+        if filters.platform == "Instagram":
+            return await search_instagram_verified(filters)
 
         # Fallback: web search (YouTube or if Apify returned nothing)
         prompt = build_web_search_prompt(filters)
@@ -394,15 +427,13 @@ async def search_influencers(filters: SearchFilters):
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}],
         )
-
         search_text = "".join(
             b.text for b in search_response.content if hasattr(b, "text") and b.text
         )
-
-        format_prompt = f"""Based on this research about influencers:
+        format_prompt = f"""Based on this research:
 {search_text}
 
-Format as JSON with EXACTLY this structure, no other text:
+Format as JSON:
 {{
   "influencers": [
     {{
@@ -415,20 +446,19 @@ Format as JSON with EXACTLY this structure, no other text:
       "estimated_engagement": "4.5%",
       "country": "{filters.country}",
       "profile_url": "https://tiktok.com/@username",
-      "content_style": "Description of content",
+      "content_style": "Description",
       "why_good_fit": "Why they match"
     }}
   ],
   "search_summary": "Brief summary"
 }}
-Return ONLY the JSON, nothing else."""
+Return ONLY the JSON."""
 
         format_response = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=4000,
             messages=[{"role": "user", "content": format_prompt}],
         )
-
         full_text = "".join(
             b.text for b in format_response.content if hasattr(b, "text") and b.text
         )
@@ -437,8 +467,7 @@ Return ONLY the JSON, nothing else."""
         start = clean.find("{")
         end = clean.rfind("}") + 1
         if start < 0 or end <= start:
-            raise HTTPException(status_code=500, detail="No JSON found: " + clean[:200])
-
+            raise HTTPException(status_code=500, detail="No JSON: " + clean[:200])
         data = json.loads(clean[start:end])
         return SearchResponse(
             influencers=data.get("influencers", []),
@@ -479,8 +508,8 @@ async def health():
     return {
         "status": "ok",
         "agent": "marketing",
-        "version": "3.0.0",
-        "provider": "Apify (TikTok + Instagram con perfiles reales) + WebSearch (YouTube)",
+        "version": "4.0.0",
+        "provider": "TikTok: Apify Real Data | Instagram: Web Search + Apify Verificado | YouTube: Web Search",
         "apify_connected": bool(APIFY_TOKEN),
     }
 
