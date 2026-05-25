@@ -132,44 +132,100 @@ async def fetch_instagram_data(niche: str, quantity: int) -> list:
 
 
 def normalize_tiktok(items: list) -> list:
-    """Convert TikTok Apify items to a unified format."""
-    normalized = []
+    """Convert TikTok Apify items to a unified format, grouping by author."""
+    authors = {}
     for item in items:
         author = item.get("authorMeta", {})
-        video = item.get("videoMeta", {})
-        normalized.append({
-            "platform": "TikTok",
-            "username": author.get("name", ""),
-            "display_name": author.get("nickName", author.get("name", "")),
-            "followers": author.get("fans", 0),
+        username = author.get("name", "")
+        if not username:
+            continue
+        if username not in authors:
+            authors[username] = {
+                "platform": "TikTok",
+                "username": username,
+                "display_name": author.get("nickName", username),
+                "followers": author.get("fans", 0),
+                "profile_url": f"https://tiktok.com/@{username}",
+                "posts": [],
+            }
+        # Keep highest fans count seen across posts
+        fans = author.get("fans", 0)
+        if fans > authors[username]["followers"]:
+            authors[username]["followers"] = fans
+        authors[username]["posts"].append({
             "text": item.get("text", ""),
             "plays": item.get("playCount", 0),
             "likes": item.get("diggCount", 0),
             "shares": item.get("shareCount", 0),
             "comments": item.get("commentCount", 0),
-            "duration": video.get("duration", 0),
-            "profile_url": f"https://tiktok.com/@{author.get('name', '')}",
+        })
+
+    normalized = []
+    for username, data in authors.items():
+        posts = data["posts"]
+        avg_plays = int(sum(p["plays"] for p in posts) / len(posts)) if posts else 0
+        avg_likes = int(sum(p["likes"] for p in posts) / len(posts)) if posts else 0
+        avg_comments = int(sum(p["comments"] for p in posts) / len(posts)) if posts else 0
+        engagement = round((avg_likes + avg_comments) / avg_plays * 100, 2) if avg_plays > 0 else 0
+        normalized.append({
+            "platform": "TikTok",
+            "username": username,
+            "display_name": data["display_name"],
+            "followers": data["followers"],
+            "avg_plays": avg_plays,
+            "avg_likes": avg_likes,
+            "avg_comments": avg_comments,
+            "engagement_rate": engagement,
+            "sample_captions": [p["text"][:100] for p in posts[:3]],
+            "profile_url": data["profile_url"],
         })
     return normalized
 
 
 def normalize_instagram(items: list) -> list:
-    """Convert Instagram Apify items to a unified format."""
-    normalized = []
+    """Convert Instagram Apify items to a unified format, grouping by author."""
+    authors = {}
     for item in items:
         owner = item.get("ownerUsername", "") or item.get("owner", {}).get("username", "")
+        if not owner:
+            continue
+        if owner not in authors:
+            authors[owner] = {
+                "platform": "Instagram",
+                "username": owner,
+                "display_name": item.get("ownerFullName", owner),
+                "followers": item.get("ownerFollowersCount", 0),
+                "profile_url": f"https://instagram.com/{owner}",
+                "posts": [],
+            }
+        followers = item.get("ownerFollowersCount", 0)
+        if followers > authors[owner]["followers"]:
+            authors[owner]["followers"] = followers
+        authors[owner]["posts"].append({
+            "text": item.get("caption", "") or item.get("alt", ""),
+            "plays": item.get("videoViewCount", 0) or item.get("likesCount", 0),
+            "likes": item.get("likesCount", 0),
+            "comments": item.get("commentsCount", 0),
+        })
+
+    normalized = []
+    for owner, data in authors.items():
+        posts = data["posts"]
+        avg_plays = int(sum(p["plays"] for p in posts) / len(posts)) if posts else 0
+        avg_likes = int(sum(p["likes"] for p in posts) / len(posts)) if posts else 0
+        avg_comments = int(sum(p["comments"] for p in posts) / len(posts)) if posts else 0
+        engagement = round((avg_likes + avg_comments) / avg_plays * 100, 2) if avg_plays > 0 else 0
         normalized.append({
             "platform": "Instagram",
             "username": owner,
-            "display_name": owner,
-            "followers": item.get("ownerFollowersCount", 0),
-            "text": item.get("caption", "") or item.get("alt", ""),
-            "plays": item.get("videoViewCount", item.get("likesCount", 0)),
-            "likes": item.get("likesCount", 0),
-            "shares": 0,
-            "comments": item.get("commentsCount", 0),
-            "duration": item.get("videoDuration", 0),
-            "profile_url": f"https://instagram.com/{owner}",
+            "display_name": data["display_name"],
+            "followers": data["followers"],
+            "avg_plays": avg_plays,
+            "avg_likes": avg_likes,
+            "avg_comments": avg_comments,
+            "engagement_rate": engagement,
+            "sample_captions": [p["text"][:100] for p in posts[:3]],
+            "profile_url": data["profile_url"],
         })
     return normalized
 
@@ -180,9 +236,9 @@ def analyze_with_claude(normalized_items: list, filters: SearchFilters) -> Searc
     """Send real scraped data to Claude to filter and format influencers."""
     data_str = json.dumps(normalized_items[:60], ensure_ascii=False)
 
-    prompt = f"""You are an influencer analyst. Below is REAL scraped data from {filters.platform} posts about the niche "{filters.niche}".
+    prompt = f"""You are an influencer analyst. Below is REAL scraped data from {filters.platform} already grouped by creator.
 
-REAL DATA:
+REAL DATA (each entry is one unique creator with aggregated metrics):
 {data_str}
 
 FILTERS TO APPLY:
@@ -195,12 +251,12 @@ FILTERS TO APPLY:
 - Quantity needed: {filters.quantity}
 
 TASK:
-1. Group posts by username to find unique creators
-2. For each creator, calculate average plays/likes across their posts
-3. Estimate engagement rate as: (likes + comments) / plays * 100
-4. Filter by the criteria above
-5. Pick the top {filters.quantity} best matches
-6. If fewer than {filters.quantity} match strictly, include the closest matches with a note
+1. Use the REAL followers count from the data (field: followers) - do NOT estimate it
+2. Use avg_plays for views, engagement_rate for engagement - these are already calculated
+3. Filter creators by the criteria above
+4. Pick the top {filters.quantity} best matches ranked by engagement_rate
+5. If fewer than {filters.quantity} match strictly, include closest matches with a note
+6. Format followers as "1.2M", "45K", etc.
 
 Return ONLY a valid JSON object, no markdown, no extra text:
 {{
