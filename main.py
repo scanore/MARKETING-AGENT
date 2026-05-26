@@ -324,11 +324,11 @@ VERIFIED REAL DATA FROM APIFY (may be partial):
 
 TASK:
 1. For usernames WITH verified data: use the real followers/metrics from Apify
-2. For usernames WITHOUT verified data: use web search knowledge to estimate
-3. STRICT follower filter: only include creators with {filters.min_followers:,} to {filters.max_followers:,} followers
-4. If not enough creators match the range, include the closest ones with a note
-5. Rank by engagement rate
-6. NEVER include creators with followers outside the range unless absolutely no other option
+2. For usernames WITHOUT verified data: use your web search knowledge to fill in realistic metrics
+3. Prioritize creators with {filters.min_followers:,} to {filters.max_followers:,} followers
+4. ALWAYS return {filters.quantity} results - never return 0
+5. If some dont fit the range exactly, include them but note it in why_good_fit
+6. Rank by best match to follower range first, then engagement rate
 
 Return ONLY valid JSON:
 {{
