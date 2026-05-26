@@ -325,8 +325,10 @@ VERIFIED REAL DATA FROM APIFY (may be partial):
 TASK:
 1. For usernames WITH verified data: use the real followers/metrics from Apify
 2. For usernames WITHOUT verified data: use web search knowledge to estimate
-3. Always return {filters.quantity} results
-4. Rank by best fit to criteria
+3. STRICT follower filter: only include creators with {filters.min_followers:,} to {filters.max_followers:,} followers
+4. If not enough creators match the range, include the closest ones with a note
+5. Rank by engagement rate
+6. NEVER include creators with followers outside the range unless absolutely no other option
 
 Return ONLY valid JSON:
 {{
