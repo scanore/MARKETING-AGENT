@@ -215,7 +215,7 @@ def build_tiktok_results(normalized: list, filters: SearchFilters) -> SearchResp
         for c in sorted_creators:
             if len(matched) >= filters.quantity:
                 break
-            if c not in matched:
+            if c.get("username") not in [m.get("username") for m in matched]:
                 matched.append(c)
     
     influencers = []
