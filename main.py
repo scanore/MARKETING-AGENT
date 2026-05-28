@@ -348,14 +348,17 @@ No @ symbol, just plain usernames."""
             "why_good_fit": f"Verified {followers_str} followers" if followers > 0 else "Found via web search",
         })
     
-    # If not enough after filter, add remaining without filter
-    if len(all_influencers) < filters.quantity:
-        for username in usernames[:filters.quantity * 2]:
+    # If not enough verified results, search for more usernames and verify again
+    if len(all_influencers) < min(3, filters.quantity) and verified:
+        # Add verified ones outside range as fallback, sorted by closest to target
+        target = (filters.min_followers + filters.max_followers) / 2
+        extras = sorted(
+            [(u, v) for u, v in verified.items() if not any(i["handle"] == f"@{u}" for i in all_influencers)],
+            key=lambda x: abs(x[1].get("followers", 0) - target)
+        )
+        for username, v in extras:
             if len(all_influencers) >= filters.quantity:
                 break
-            if any(i["handle"] == f"@{username}" for i in all_influencers):
-                continue
-            v = verified.get(username, {})
             followers = v.get("followers", 0)
             display_name = v.get("display_name", username)
             if followers >= 1_000_000:
@@ -365,7 +368,7 @@ No @ symbol, just plain usernames."""
             elif followers > 0:
                 followers_str = str(followers)
             else:
-                followers_str = "N/A"
+                continue  # Skip unverified
             all_influencers.append({
                 "name": display_name,
                 "handle": f"@{username}",
@@ -377,7 +380,7 @@ No @ symbol, just plain usernames."""
                 "country": filters.country,
                 "profile_url": f"https://instagram.com/{username}",
                 "content_style": f"Instagram creator in {filters.niche} niche",
-                "why_good_fit": f"Verified {followers_str} followers" if followers > 0 else "Found via web search - outside filter range",
+                "why_good_fit": f"Verified {followers_str} followers (outside requested range)",
             })
 
     verified_count = len(verified)
