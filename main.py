@@ -338,7 +338,7 @@ Return ONLY JSON:
 
     # Step 2: Verify with Apify if available
     usernames = [c.get("username", "") for c in creators if c.get("username")][:20]
-    verified = {{}}
+    verified = {}
     if usernames and APIFY_TOKEN:
         try:
             verified = await asyncio.wait_for(
@@ -346,7 +346,7 @@ Return ONLY JSON:
                 timeout=45.0
             )
         except Exception:
-            verified = {{}}
+            verified = {}
 
     # Step 3: Build results
     influencers = []
@@ -360,7 +360,7 @@ Return ONLY JSON:
             continue
 
         # Use verified data if available, otherwise use web search data
-        v = verified.get(username, {{}})
+        v = verified.get(username, {})
         followers = v.get("followers", 0) or creator.get("followers", int(target))
         display_name = v.get("display_name", "") or creator.get("name", username)
 
