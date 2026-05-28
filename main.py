@@ -467,7 +467,41 @@ Find creators with {follower_range} followers."""
     elif verified_count == 0:
         summary = f"ERROR: Apify no verificó ningún perfil de {len(usernames)} encontrados: {usernames[:5]}"
     elif len(influencers) == 0:
-        summary = f"ERROR: {verified_count} verificados pero ninguno en rango {filters.min_followers:,}-{filters.max_followers:,}. Seguidores encontrados: {[v.get('followers',0) for v in verified.values()][:5]}"
+        # Show what was found even if outside range
+        summary = f"{verified_count} perfiles verificados pero fuera del rango {filters.min_followers:,}-{filters.max_followers:,}. Mostrando mejores disponibles."
+        # Add them anyway sorted by followers
+        for username, v in sorted(verified.items(), key=lambda x: x[1].get("followers",0), reverse=True):
+            if len(influencers) >= filters.quantity:
+                break
+            followers = v.get("followers", 0)
+            if followers == 0:
+                continue
+            display_name = v.get("display_name", username)
+            if followers >= 1_000_000:
+                fs = f"{followers/1_000_000:.1f}M"
+                av = f"{int(followers*0.03/1000)}K avg"
+                er = "1.5%"
+            elif followers >= 1_000:
+                fs = f"{int(followers/1000)}K"
+                av = f"{int(followers*0.05/1000)}K avg"
+                er = "3.5%"
+            else:
+                fs = str(followers)
+                av = "N/A"
+                er = "N/A"
+            influencers.append({
+                "name": display_name,
+                "handle": f"@{username}",
+                "platform": "Instagram",
+                "niche": filters.niche,
+                "estimated_followers": fs,
+                "estimated_views": av,
+                "estimated_engagement": er,
+                "country": filters.country,
+                "profile_url": f"https://instagram.com/{username}",
+                "content_style": f"Instagram {filters.niche} creator",
+                "why_good_fit": f"✓ Verified {fs} followers (outside range - adjust filters)",
+            })
     return SearchResponse(
         influencers=influencers[:filters.quantity],
         search_summary=summary,
