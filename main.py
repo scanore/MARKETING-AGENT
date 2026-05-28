@@ -287,20 +287,46 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
         messages=[{"role": "user", "content": prompt}],
     )
 
-    # Get all text
+    # Get all text from response
     all_text = ""
     for block in response.content:
         if hasattr(block, "text") and block.text:
             all_text += block.text + " "
 
-    # Extract usernames with regex
+    # Try regex first: @mentions
     usernames = re.findall(r'@([a-zA-Z0-9._]{3,30})', all_text)
-    usernames = list(dict.fromkeys(usernames))[:30]  # unique, max 30
+    usernames = list(dict.fromkeys(usernames))[:30]
 
-    # If no @mentions found, try instagram.com URLs
+    # Try instagram.com URLs
     if not usernames:
         usernames = re.findall(r'instagram\.com/([a-zA-Z0-9._]{3,30})', all_text)
         usernames = list(dict.fromkeys(usernames))[:30]
+
+    # If still nothing, ask Claude to extract usernames explicitly
+    if not usernames and all_text.strip():
+        extract = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[
+                {"role": "user", "content": f"From this text, extract all Instagram usernames (the part after @). Return as comma-separated list only, no other text:\n\n{all_text[:3000]}"}
+            ],
+        )
+        extract_text = "".join(b.text for b in extract.content if hasattr(b, "text") and b.text)
+        raw = [u.strip().lstrip("@") for u in extract_text.split(",")]
+        usernames = [u for u in raw if u and len(u) >= 3 and " " not in u][:30]
+
+    # Last resort: ask Claude directly for usernames without web search
+    if not usernames:
+        direct = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=300,
+            messages=[
+                {"role": "user", "content": f"List {filters.quantity * 3} real Instagram usernames (without @) for {filters.niche} influencers in {filters.country} with {follower_range} followers. Return comma-separated usernames only, nothing else."}
+            ],
+        )
+        direct_text = "".join(b.text for b in direct.content if hasattr(b, "text") and b.text)
+        raw = [u.strip().lstrip("@") for u in direct_text.replace("\n", ",").split(",")]
+        usernames = [u for u in raw if u and len(u) >= 3 and " " not in u][:30]
 
     # Step 2: Verify with Apify Profile Scraper
     verified = {}
