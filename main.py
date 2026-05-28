@@ -320,19 +320,16 @@ No @ symbol, just plain usernames."""
     except Exception:
         usernames = []
 
-    # Step 2: Verify real metrics with Apify (best effort)
+    # Step 2: Verify real metrics with Apify (with short timeout)
     verified = {}
-    import logging
-    logging.warning(f"DEBUG: Found {len(usernames)} usernames: {usernames[:5]}")
     if usernames and APIFY_TOKEN:
         try:
-            verified = await verify_instagram_profiles(usernames)
-            logging.warning(f"DEBUG: Verified {len(verified)} profiles: {list(verified.keys())[:5]}")
-        except Exception as e:
-            logging.warning(f"DEBUG: Apify verification failed: {e}")
+            verified = await asyncio.wait_for(
+                verify_instagram_profiles(usernames),
+                timeout=45.0
+            )
+        except (asyncio.TimeoutError, Exception):
             verified = {}
-    else:
-        logging.warning(f"DEBUG: Skipping Apify - usernames={len(usernames)}, token={bool(APIFY_TOKEN)}")
 
     # Step 3: Build results directly from verified Apify data
     # Only use Claude for content_style and why_good_fit descriptions
