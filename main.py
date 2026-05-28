@@ -307,30 +307,26 @@ No @ symbol, just plain usernames."""
             verified = {}
 
     # Step 3: Claude formats final results with verified data
-    format_prompt = f"""You are an influencer analyst for Instagram.
+    # Split into batches of 20 to avoid JSON truncation
+    batch_size = 20
+    all_influencers = []
+    batches = [usernames[i:i+batch_size] for i in range(0, len(usernames), batch_size)]
+    
+    for batch in batches:
+        if len(all_influencers) >= filters.quantity:
+            break
+        remaining = filters.quantity - len(all_influencers)
+        batch_verified = {k: v for k, v in verified.items() if k in batch}
+        
+        format_prompt = f"""You are an influencer analyst for Instagram.
 
-SEARCH CRITERIA:
-- Niche: {filters.niche}
-- Country: {filters.country}
-- Followers: {follower_range}
-- Min views: {filters.min_views:,}
-- Quantity: {filters.quantity}
+SEARCH CRITERIA: niche={filters.niche}, country={filters.country}, followers={follower_range}, quantity={min(remaining, batch_size)}
 
-FOUND USERNAMES FROM WEB SEARCH:
-{json.dumps(usernames, ensure_ascii=False)}
+USERNAMES: {json.dumps(batch)}
+VERIFIED DATA: {json.dumps(batch_verified)}
 
-VERIFIED REAL DATA FROM APIFY (may be partial):
-{json.dumps(verified, ensure_ascii=False)}
-
-TASK:
-1. For usernames WITH verified data: use the real followers/metrics from Apify
-2. For usernames WITHOUT verified data: use your web search knowledge to fill in realistic metrics
-3. Prioritize creators with {filters.min_followers:,} to {filters.max_followers:,} followers
-4. ALWAYS return {filters.quantity} results - never return 0
-5. If some dont fit the range exactly, include them but note it in why_good_fit
-6. Rank by best match to follower range first, then engagement rate
-
-Return ONLY valid JSON:
+Return {min(remaining, batch_size)} influencers. Use verified data where available, estimate otherwise.
+ONLY valid JSON, no markdown:
 {{
   "influencers": [
     {{
@@ -343,30 +339,33 @@ Return ONLY valid JSON:
       "estimated_engagement": "3.8%",
       "country": "{filters.country}",
       "profile_url": "https://instagram.com/username",
-      "content_style": "Description of content style",
-      "why_good_fit": "Why they match the criteria"
+      "content_style": "Content description",
+      "why_good_fit": "Why they match"
     }}
-  ],
-  "search_summary": "X influencers found, Y verified with real data from Apify"
+  ]
 }}"""
 
-    final_response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=8000,
-        messages=[{"role": "user", "content": format_prompt}],
-    )
-    final_text = "".join(b.text for b in final_response.content if hasattr(b, "text") and b.text)
-    clean = re.sub(r"```json\s*", "", final_text.strip())
-    clean = re.sub(r"```\s*", "", clean).strip()
-    start = clean.find("{")
-    end = clean.rfind("}") + 1
-    if start < 0 or end <= start:
-        raise HTTPException(status_code=500, detail="No JSON: " + clean[:200])
-    data = json.loads(clean[start:end])
+        resp = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=4000,
+            messages=[{"role": "user", "content": format_prompt}],
+        )
+        text = "".join(b.text for b in resp.content if hasattr(b, "text") and b.text)
+        clean = re.sub(r"```json\s*", "", text.strip())
+        clean = re.sub(r"```\s*", "", clean).strip()
+        s = clean.find("{")
+        e = clean.rfind("}") + 1
+        if s >= 0 and e > s:
+            try:
+                batch_data = json.loads(clean[s:e])
+                all_influencers.extend(batch_data.get("influencers", []))
+            except Exception:
+                pass
+
     verified_count = len(verified)
     return SearchResponse(
-        influencers=data.get("influencers", []),
-        search_summary=data.get("search_summary", "Búsqueda completada."),
+        influencers=all_influencers[:filters.quantity],
+        search_summary=f"{len(all_influencers)} influencers encontrados, {verified_count} verificados con Apify.",
         data_source=f"Web Search + Apify Verificado ({verified_count} perfiles)",
     )
 
