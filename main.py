@@ -102,7 +102,7 @@ async def fetch_tiktok_data(niche: str, quantity: int) -> list:
         TIKTOK_ACTOR,
         {
             "hashtags": [hashtag],
-            "resultsPerPage": min(quantity * 5, 100),
+            "resultsPerPage": min(quantity * 5, 500),
             "shouldDownloadVideos": False,
             "shouldDownloadCovers": False,
         },
@@ -115,7 +115,7 @@ async def verify_instagram_profiles(usernames: list) -> dict:
     if not usernames:
         return {}
     try:
-        urls = [f"https://www.instagram.com/{u}/" for u in usernames[:15]]
+        urls = [f"https://www.instagram.com/{u}/" for u in usernames[:50]]
         items = await run_apify_actor(
             INSTAGRAM_ACTOR,
             {
@@ -123,7 +123,7 @@ async def verify_instagram_profiles(usernames: list) -> dict:
                 "resultsType": "details",
                 "resultsLimit": 1,
             },
-            max_items=15,
+            max_items=50,
         )
         result = {}
         for item in items:
@@ -190,7 +190,7 @@ def normalize_tiktok(items: list) -> list:
 
 
 def analyze_tiktok_with_claude(normalized: list, filters: SearchFilters) -> SearchResponse:
-    data_str = json.dumps(normalized[:60], ensure_ascii=False)
+    data_str = json.dumps(normalized[:200], ensure_ascii=False)
     prompt = f"""You are an influencer analyst. Below is REAL scraped TikTok data grouped by creator.
 
 REAL DATA:
@@ -231,7 +231,7 @@ Return ONLY valid JSON:
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=4000,
+        max_tokens=8000,
         messages=[{"role": "user", "content": prompt}],
     )
     full_text = "".join(b.text for b in response.content if hasattr(b, "text") and b.text)
@@ -352,7 +352,7 @@ Return ONLY valid JSON:
 
     final_response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=4000,
+        max_tokens=8000,
         messages=[{"role": "user", "content": format_prompt}],
     )
     final_text = "".join(b.text for b in final_response.content if hasattr(b, "text") and b.text)
@@ -428,7 +428,7 @@ async def search_influencers(filters: SearchFilters):
         prompt = build_web_search_prompt(filters)
         search_response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=4000,
+            max_tokens=8000,
             tools=[{"type": "web_search_20250305", "name": "web_search"}],
             messages=[{"role": "user", "content": prompt}],
         )
@@ -461,7 +461,7 @@ Return ONLY the JSON."""
 
         format_response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=4000,
+            max_tokens=8000,
             messages=[{"role": "user", "content": format_prompt}],
         )
         full_text = "".join(
