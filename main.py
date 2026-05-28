@@ -27,6 +27,7 @@ APIFY_TOKEN = os.environ.get("APIFY_API_TOKEN")
 
 TIKTOK_ACTOR = "GdWCkxBtKWOsKjdch"
 INSTAGRAM_ACTOR = "shu8hvrXbJbY3Eb9W"
+INSTAGRAM_PROFILE_ACTOR = "apify/instagram-profile-scraper"
 
 
 class SearchFilters(BaseModel):
