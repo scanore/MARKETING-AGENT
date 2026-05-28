@@ -277,8 +277,15 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
     """Web search finds influencers -> regex extracts usernames -> Apify verifies followers."""
     follower_range = f"{filters.min_followers:,} - {filters.max_followers:,}"
 
-    # Step 1: Web search - ask Claude to list influencers in plain text
-    prompt = f"List {filters.quantity * 3} real Instagram influencers for {filters.niche} in {filters.country} with {follower_range} followers. For each write: Name (@username) - followers count. Example: John Smith (@johnsmith) - 45K followers"
+    # Step 1: Web search for real Instagram profiles
+    prompt = f"""Search Instagram for real {filters.niche} content creators from {filters.country}.
+Search specifically for: site:instagram.com {filters.niche} {filters.country}
+Also search: "{filters.niche} influencer instagram {filters.country}" @username
+
+I need their Instagram usernames (the @handle). List each one as:
+@username - number of followers
+
+Find creators with {follower_range} followers."""
 
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
