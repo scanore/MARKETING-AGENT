@@ -274,51 +274,51 @@ def analyze_tiktok_with_claude(normalized: list, filters: SearchFilters) -> Sear
 async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
     """Step 1: Web search finds big influencers. Step 2: Apify verifies real metrics."""
 
-    # Step 1: Use web search to find Instagram influencers in the niche
+    # Step 1: Use web search to find Instagram influencers — return usernames directly
     follower_range = f"{filters.min_followers:,} - {filters.max_followers:,}"
-    search_prompt = f"""Find {filters.quantity * 4} real Instagram influencers in the "{filters.niche}" niche from {filters.country}.
-Requirements: {follower_range} followers, active accounts with real following.
-Return ONLY a JSON object with this structure, no markdown:
-{{
-  "usernames": ["username1", "username2", "username3"]
-}}
-Only real Instagram usernames, no @ symbol, just the username. Include as many as possible."""
+    search_prompt = f"""Search for real Instagram influencers in the "{filters.niche}" niche from {filters.country} with {follower_range} followers.
+
+Find at least {filters.quantity * 3} real creators. Then return ONLY this JSON with no other text:
+{{"usernames": ["username1", "username2", "username3"]}}
+
+Rules:
+- Only real Instagram usernames (no @ symbol)
+- No spaces in usernames
+- Must be active accounts in {filters.niche}"""
 
     search_response = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=1000,
+        max_tokens=2000,
         tools=[{"type": "web_search_20250305", "name": "web_search"}],
         messages=[{"role": "user", "content": search_prompt}],
     )
 
-    search_text = "".join(
-        b.text for b in search_response.content if hasattr(b, "text") and b.text
-    )
+    # Extract usernames from ALL content blocks
+    usernames = []
+    all_text = ""
+    for block in search_response.content:
+        if hasattr(block, "text") and block.text:
+            all_text += block.text
 
-    # Extract usernames from response
-    extract_prompt = f"""From this text, extract Instagram usernames and return ONLY a JSON object:
-{search_text}
-
-Return ONLY:
-{{"usernames": ["username1", "username2"]}}
-No @ symbol, just plain usernames."""
-
-    extract_response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=500,
-        messages=[{"role": "user", "content": extract_prompt}],
-    )
-    extract_text = "".join(b.text for b in extract_response.content if hasattr(b, "text") and b.text)
-
+    # Try to parse JSON directly
     try:
-        clean = re.sub(r"```json\s*", "", extract_text.strip())
+        clean = re.sub(r"```json\s*", "", all_text.strip())
         clean = re.sub(r"```\s*", "", clean).strip()
         start = clean.find("{")
         end = clean.rfind("}") + 1
-        usernames_data = json.loads(clean[start:end])
-        usernames = usernames_data.get("usernames", [])[:40]
+        if start >= 0 and end > start:
+            data = json.loads(clean[start:end])
+            usernames = data.get("usernames", [])[:40]
     except Exception:
-        usernames = []
+        pass
+
+    # Fallback: extract @mentions or usernames from text
+    if not usernames:
+        import re as re2
+        found = re2.findall(r'@([a-zA-Z0-9._]{3,30})', all_text)
+        if not found:
+            found = re2.findall(r'instagram\.com/([a-zA-Z0-9._]{3,30})', all_text)
+        usernames = list(dict.fromkeys(found))[:40]
 
     # Step 2: Verify real metrics with Apify (with short timeout)
     verified = {}
