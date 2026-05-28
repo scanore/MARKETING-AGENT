@@ -322,11 +322,17 @@ No @ symbol, just plain usernames."""
 
     # Step 2: Verify real metrics with Apify (best effort)
     verified = {}
+    import logging
+    logging.warning(f"DEBUG: Found {len(usernames)} usernames: {usernames[:5]}")
     if usernames and APIFY_TOKEN:
         try:
             verified = await verify_instagram_profiles(usernames)
-        except Exception:
+            logging.warning(f"DEBUG: Verified {len(verified)} profiles: {list(verified.keys())[:5]}")
+        except Exception as e:
+            logging.warning(f"DEBUG: Apify verification failed: {e}")
             verified = {}
+    else:
+        logging.warning(f"DEBUG: Skipping Apify - usernames={len(usernames)}, token={bool(APIFY_TOKEN)}")
 
     # Step 3: Build results directly from verified Apify data
     # Only use Claude for content_style and why_good_fit descriptions
