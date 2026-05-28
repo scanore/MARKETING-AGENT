@@ -342,26 +342,21 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
         except Exception:
             verified = {}
 
-    # Step 3: Build results
+    # Step 3: Build results — ONLY from Apify verified profiles
     influencers = []
-    target = (filters.min_followers + filters.max_followers) / 2
 
-    for creator in creators:
+    for username, v in verified.items():
         if len(influencers) >= filters.quantity:
             break
-        username = creator.get("username", "")
-        if not username:
+        followers = v.get("followers", 0)
+        display_name = v.get("display_name", username)
+
+        if followers == 0:
             continue
 
-        # Use verified data if available, otherwise use web search data
-        v = verified.get(username, {})
-        followers = v.get("followers", 0) or creator.get("followers", int(target))
-        display_name = v.get("display_name", "") or creator.get("name", username)
-
         # Apply follower filter
-        if followers > 0:
-            if followers < filters.min_followers or followers > filters.max_followers:
-                continue
+        if followers < filters.min_followers or followers > filters.max_followers:
+            continue
 
         # Format
         if followers >= 1_000_000:
@@ -399,41 +394,6 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
             "content_style": f"Instagram creator in {filters.niche} niche",
             "why_good_fit": f"{verified_tag}: {followers_str} followers",
         })
-
-    # If still not enough, add remaining without filter
-    if len(influencers) < filters.quantity:
-        for creator in creators:
-            if len(influencers) >= filters.quantity:
-                break
-            username = creator.get("username", "")
-            if not username or any(i["handle"] == f"@{username}" for i in influencers):
-                continue
-            followers = creator.get("followers", int(target))
-            if followers >= 1_000_000:
-                followers_str = f"{followers/1_000_000:.1f}M"
-                avg_views = f"{int(followers * 0.03 / 1000)}K avg"
-                eng_rate = "1.5%"
-            elif followers >= 1_000:
-                followers_str = f"{followers/1_000:.0f}K"
-                avg_views = f"{int(followers * 0.05 / 1000)}K avg"
-                eng_rate = "3.5%"
-            else:
-                followers_str = f"{int(target/1000):.0f}K"
-                avg_views = f"{int(target * 0.05 / 1000)}K avg"
-                eng_rate = "3.5%"
-            influencers.append({
-                "name": creator.get("name", username),
-                "handle": f"@{username}",
-                "platform": "Instagram",
-                "niche": filters.niche,
-                "estimated_followers": followers_str,
-                "estimated_views": avg_views,
-                "estimated_engagement": eng_rate,
-                "country": filters.country,
-                "profile_url": f"https://instagram.com/{username}",
-                "content_style": f"Instagram creator in {filters.niche} niche",
-                "why_good_fit": f"Web Search: {followers_str} followers (estimated)",
-            })
 
     verified_count = len(verified)
     return SearchResponse(
