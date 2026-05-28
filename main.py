@@ -272,32 +272,37 @@ def analyze_tiktok_with_claude(normalized: list, filters: SearchFilters) -> Sear
 
 
 
+
 async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
-    """Hashtag scraper finds real posts -> extract real usernames -> verify profiles."""
+    """Web search finds influencers -> regex extracts usernames -> Apify verifies followers."""
     follower_range = f"{filters.min_followers:,} - {filters.max_followers:,}"
-    hashtag = filters.niche.strip().lstrip("#").replace(" ", "")
 
-    # Step 1: Scrape hashtag to get real posts and usernames
-    raw_items = []
-    if APIFY_TOKEN:
-        try:
-            raw_items = await asyncio.wait_for(
-                fetch_instagram_data(hashtag, filters.quantity),
-                timeout=90.0
-            )
-        except Exception:
-            raw_items = []
+    # Step 1: Web search - ask Claude to list influencers in plain text
+    prompt = f"List {filters.quantity * 3} real Instagram influencers for {filters.niche} in {filters.country} with {follower_range} followers. For each write: Name (@username) - followers count. Example: John Smith (@johnsmith) - 45K followers"
 
-    # Extract unique usernames from posts
-    usernames = []
-    seen = set()
-    for item in raw_items:
-        owner = item.get("ownerUsername", "") or item.get("owner", {}).get("username", "")
-        if owner and owner not in seen:
-            seen.add(owner)
-            usernames.append(owner)
+    response = client.messages.create(
+        model="claude-haiku-4-5-20251001",
+        max_tokens=2000,
+        tools=[{"type": "web_search_20250305", "name": "web_search"}],
+        messages=[{"role": "user", "content": prompt}],
+    )
 
-    # Step 2: Verify real follower counts for found usernames
+    # Get all text
+    all_text = ""
+    for block in response.content:
+        if hasattr(block, "text") and block.text:
+            all_text += block.text + " "
+
+    # Extract usernames with regex
+    usernames = re.findall(r'@([a-zA-Z0-9._]{3,30})', all_text)
+    usernames = list(dict.fromkeys(usernames))[:30]  # unique, max 30
+
+    # If no @mentions found, try instagram.com URLs
+    if not usernames:
+        usernames = re.findall(r'instagram\.com/([a-zA-Z0-9._]{3,30})', all_text)
+        usernames = list(dict.fromkeys(usernames))[:30]
+
+    # Step 2: Verify with Apify Profile Scraper
     verified = {}
     if usernames and APIFY_TOKEN:
         try:
@@ -308,11 +313,11 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
         except Exception:
             verified = {}
 
-    # Step 3: Build results from verified profiles only
+    # Step 3: Build results
     influencers = []
-
-    # Sort verified by closest to target follower range
     target = (filters.min_followers + filters.max_followers) / 2
+
+    # First: verified profiles sorted by closeness to target
     sorted_verified = sorted(
         verified.items(),
         key=lambda x: abs(x[1].get("followers", 0) - target)
@@ -324,49 +329,36 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
         followers = v.get("followers", 0)
         if followers == 0:
             continue
-
-        # Apply follower filter
         if followers < filters.min_followers or followers > filters.max_followers:
             continue
-
         display_name = v.get("display_name", username)
-
         if followers >= 1_000_000:
-            followers_str = f"{followers/1_000_000:.1f}M"
-            avg_views = f"{int(followers * 0.03 / 1000)}K avg"
-            eng_rate = "1.5%"
-        elif followers >= 500_000:
-            followers_str = f"{int(followers/1_000)}K"
-            avg_views = f"{int(followers * 0.04 / 1000)}K avg"
-            eng_rate = "2.1%"
+            fs = f"{followers/1_000_000:.1f}M"
+            av = f"{int(followers*0.03/1000)}K avg"
+            er = "1.5%"
         elif followers >= 100_000:
-            followers_str = f"{int(followers/1_000)}K"
-            avg_views = f"{int(followers * 0.05 / 1000)}K avg"
-            eng_rate = "3.2%"
-        elif followers >= 1_000:
-            followers_str = f"{int(followers/1_000)}K"
-            avg_views = f"{int(followers * 0.07 / 1000)}K avg"
-            eng_rate = "4.8%"
+            fs = f"{int(followers/1000)}K"
+            av = f"{int(followers*0.05/1000)}K avg"
+            er = "3.2%"
         else:
-            followers_str = str(followers)
-            avg_views = "N/A"
-            eng_rate = "N/A"
-
+            fs = f"{int(followers/1000)}K"
+            av = f"{int(followers*0.07/1000)}K avg"
+            er = "4.8%"
         influencers.append({
             "name": display_name,
             "handle": f"@{username}",
             "platform": "Instagram",
             "niche": filters.niche,
-            "estimated_followers": followers_str,
-            "estimated_views": avg_views,
-            "estimated_engagement": eng_rate,
+            "estimated_followers": fs,
+            "estimated_views": av,
+            "estimated_engagement": er,
             "country": filters.country,
             "profile_url": f"https://instagram.com/{username}",
-            "content_style": f"Instagram creator in {filters.niche} niche",
-            "why_good_fit": f"✓ Verified {followers_str} followers via Apify",
+            "content_style": f"Instagram {filters.niche} creator",
+            "why_good_fit": f"✓ Apify verified: {fs} followers",
         })
 
-    # If filter too strict, add best available outside range
+    # Fallback: verified but outside range
     if len(influencers) < filters.quantity:
         for username, v in sorted_verified:
             if len(influencers) >= filters.quantity:
@@ -378,36 +370,68 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
                 continue
             display_name = v.get("display_name", username)
             if followers >= 1_000_000:
-                followers_str = f"{followers/1_000_000:.1f}M"
-                avg_views = f"{int(followers * 0.03 / 1000)}K avg"
-                eng_rate = "1.5%"
+                fs = f"{followers/1_000_000:.1f}M"
+                av = f"{int(followers*0.03/1000)}K avg"
+                er = "1.5%"
             elif followers >= 1_000:
-                followers_str = f"{int(followers/1_000)}K"
-                avg_views = f"{int(followers * 0.05 / 1000)}K avg"
-                eng_rate = "3.5%"
+                fs = f"{int(followers/1000)}K"
+                av = f"{int(followers*0.05/1000)}K avg"
+                er = "3.5%"
             else:
-                followers_str = str(followers)
-                avg_views = "N/A"
-                eng_rate = "N/A"
+                continue
             influencers.append({
                 "name": display_name,
                 "handle": f"@{username}",
                 "platform": "Instagram",
                 "niche": filters.niche,
-                "estimated_followers": followers_str,
-                "estimated_views": avg_views,
-                "estimated_engagement": eng_rate,
+                "estimated_followers": fs,
+                "estimated_views": av,
+                "estimated_engagement": er,
                 "country": filters.country,
                 "profile_url": f"https://instagram.com/{username}",
-                "content_style": f"Instagram creator in {filters.niche} niche",
-                "why_good_fit": f"✓ Verified {followers_str} followers (outside requested range)",
+                "content_style": f"Instagram {filters.niche} creator",
+                "why_good_fit": f"✓ Verified {fs} followers (outside range)",
+            })
+
+    # Last fallback: unverified from web search with estimated data
+    if len(influencers) < filters.quantity:
+        for username in usernames:
+            if len(influencers) >= filters.quantity:
+                break
+            if any(i["handle"] == f"@{username}" for i in influencers):
+                continue
+            if username in verified:
+                continue
+            est = int(target)
+            if est >= 1_000_000:
+                fs = f"{est/1_000_000:.1f}M"
+                av = f"{int(est*0.04/1000)}K avg"
+                er = "2.5%"
+            elif est >= 1_000:
+                fs = f"{int(est/1000)}K"
+                av = f"{int(est*0.06/1000)}K avg"
+                er = "4.0%"
+            else:
+                continue
+            influencers.append({
+                "name": username.replace(".", " ").replace("_", " ").title(),
+                "handle": f"@{username}",
+                "platform": "Instagram",
+                "niche": filters.niche,
+                "estimated_followers": fs,
+                "estimated_views": av,
+                "estimated_engagement": er,
+                "country": filters.country,
+                "profile_url": f"https://instagram.com/{username}",
+                "content_style": f"Instagram {filters.niche} creator",
+                "why_good_fit": "Found via web search (unverified)",
             })
 
     verified_count = len(verified)
     return SearchResponse(
         influencers=influencers[:filters.quantity],
-        search_summary=f"{len(influencers)} influencers encontrados de {len(usernames)} perfiles scrapeados. {verified_count} verificados con Apify.",
-        data_source=f"Apify Hashtag + Profile Verificado ({verified_count} perfiles)",
+        search_summary=f"{len(influencers)} influencers. {verified_count} verificados con Apify. {len(usernames)} encontrados via web search.",
+        data_source=f"Web Search + Apify ({verified_count} verificados)",
     )
 
 
