@@ -289,8 +289,8 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
     response = client.messages.create(
         model="claude-haiku-4-5-20251001",
         max_tokens=3000,
-        tools=[{{"type": "web_search_20250305", "name": "web_search"}}],
-        messages=[{{"role": "user", "content": prompt}}],
+        tools=[{"type": "web_search_20250305", "name": "web_search"}],
+        messages=[{"role": "user", "content": prompt}],
     )
 
     # Get all text from response
@@ -304,8 +304,8 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
     try:
         clean = re.sub(r"```json\s*", "", all_text.strip())
         clean = re.sub(r"```\s*", "", clean).strip()
-        s = clean.find("{{")
-        e = clean.rfind("}}") + 1
+        s = clean.find("{")
+        e = clean.rfind("}") + 1
         if s >= 0 and e > s:
             data = json.loads(clean[s:e])
             creators = data.get("creators", [])
@@ -317,20 +317,14 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
         fallback = client.messages.create(
             model="claude-haiku-4-5-20251001",
             max_tokens=2000,
-            messages=[{{"role": "user", "content": f"""List {filters.quantity * 2} real Instagram influencers for {filters.niche} in {filters.country} with {follower_range} followers.
-Return ONLY JSON:
-{{{{
-  "creators": [
-    {{{{"username": "handle", "name": "Full Name", "followers": 50000}}}}
-  ]
-}}}}"""}}],
+            messages=[{"role": "user", "content": f"List {filters.quantity * 2} real Instagram influencers for {filters.niche} in {filters.country} with {follower_range} followers. Return ONLY JSON: {{\"creators\": [{{\"username\": \"handle\", \"name\": \"Full Name\", \"followers\": 50000}}]}}"}],
         )
         try:
             t = "".join(b.text for b in fallback.content if hasattr(b, "text") and b.text)
             clean = re.sub(r"```json\s*", "", t.strip())
             clean = re.sub(r"```\s*", "", clean).strip()
-            s = clean.find("{{")
-            e = clean.rfind("}}") + 1
+            s = clean.find("{")
+            e = clean.rfind("}") + 1
             data = json.loads(clean[s:e])
             creators = data.get("creators", [])
         except Exception:
@@ -392,7 +386,7 @@ Return ONLY JSON:
             eng_rate = "N/A"
 
         verified_tag = "✓ Verified" if username in verified else "Web Search"
-        influencers.append({{
+        influencers.append({
             "name": display_name,
             "handle": f"@{username}",
             "platform": "Instagram",
@@ -404,7 +398,7 @@ Return ONLY JSON:
             "profile_url": f"https://instagram.com/{username}",
             "content_style": f"Instagram creator in {filters.niche} niche",
             "why_good_fit": f"{verified_tag}: {followers_str} followers",
-        }})
+        })
 
     # If still not enough, add remaining without filter
     if len(influencers) < filters.quantity:
@@ -427,7 +421,7 @@ Return ONLY JSON:
                 followers_str = f"{int(target/1000):.0f}K"
                 avg_views = f"{int(target * 0.05 / 1000)}K avg"
                 eng_rate = "3.5%"
-            influencers.append({{
+            influencers.append({
                 "name": creator.get("name", username),
                 "handle": f"@{username}",
                 "platform": "Instagram",
@@ -439,7 +433,7 @@ Return ONLY JSON:
                 "profile_url": f"https://instagram.com/{username}",
                 "content_style": f"Instagram creator in {filters.niche} niche",
                 "why_good_fit": f"Web Search: {followers_str} followers (estimated)",
-            }})
+            })
 
     verified_count = len(verified)
     return SearchResponse(
