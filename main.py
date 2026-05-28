@@ -277,63 +277,33 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
     """Web search finds influencers -> regex extracts usernames -> Apify verifies followers."""
     follower_range = f"{filters.min_followers:,} - {filters.max_followers:,}"
 
-    # Step 1: Web search for real Instagram profiles
-    prompt = f"""Search Instagram for real {filters.niche} content creators from {filters.country}.
-Search specifically for: site:instagram.com {filters.niche} {filters.country}
-Also search: "{filters.niche} influencer instagram {filters.country}" @username
-
-I need their Instagram usernames (the @handle). List each one as:
-@username - number of followers
-
-Find creators with {follower_range} followers."""
-
-    response = client.messages.create(
+    # Step 1: Ask Claude (no web search) for real Instagram usernames it knows
+    direct = client.messages.create(
         model="claude-haiku-4-5-20251001",
-        max_tokens=2000,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[{"role": "user", "content": prompt}],
+        max_tokens=500,
+        messages=[{"role": "user", "content": f"Give me {filters.quantity * 3} real Instagram usernames (without @) of {filters.niche} content creators from {filters.country} with approximately {follower_range} followers. Only real usernames you know exist. Return ONLY a comma-separated list of usernames, nothing else."}],
     )
-
-    # Get all text from response
-    all_text = ""
-    for block in response.content:
-        if hasattr(block, "text") and block.text:
-            all_text += block.text + " "
-
-    # Try regex first: @mentions
-    usernames = re.findall(r'@([a-zA-Z0-9._]{3,30})', all_text)
-    usernames = list(dict.fromkeys(usernames))[:30]
-
-    # Try instagram.com URLs
-    if not usernames:
-        usernames = re.findall(r'instagram\.com/([a-zA-Z0-9._]{3,30})', all_text)
-        usernames = list(dict.fromkeys(usernames))[:30]
-
-    # If still nothing, ask Claude to extract usernames explicitly
-    if not usernames and all_text.strip():
-        extract = client.messages.create(
+    direct_text = "".join(b.text for b in direct.content if hasattr(b, "text") and b.text)
+    raw = [u.strip().lstrip("@").strip() for u in direct_text.replace("\n", ",").split(",")]
+    usernames = [u for u in raw if u and len(u) >= 3 and " " not in u and "." not in u.split(".")[-1]][:30]
+    
+    # Also try web search for more usernames
+    try:
+        ws_response = client.messages.create(
             model="claude-haiku-4-5-20251001",
-            max_tokens=500,
-            messages=[
-                {"role": "user", "content": f"From this text, extract all Instagram usernames (the part after @). Return as comma-separated list only, no other text:\n\n{all_text[:3000]}"}
-            ],
+            max_tokens=1000,
+            tools=[{"type": "web_search_20250305", "name": "web_search"}],
+            messages=[{"role": "user", "content": f"Search for Instagram {filters.niche} influencers {filters.country} {filters.min_followers} to {filters.max_followers} followers. Find their @usernames."}],
         )
-        extract_text = "".join(b.text for b in extract.content if hasattr(b, "text") and b.text)
-        raw = [u.strip().lstrip("@") for u in extract_text.split(",")]
-        usernames = [u for u in raw if u and len(u) >= 3 and " " not in u][:30]
-
-    # Last resort: ask Claude directly for usernames without web search
-    if not usernames:
-        direct = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=300,
-            messages=[
-                {"role": "user", "content": f"List {filters.quantity * 3} real Instagram usernames (without @) for {filters.niche} influencers in {filters.country} with {follower_range} followers. Return comma-separated usernames only, nothing else."}
-            ],
-        )
-        direct_text = "".join(b.text for b in direct.content if hasattr(b, "text") and b.text)
-        raw = [u.strip().lstrip("@") for u in direct_text.replace("\n", ",").split(",")]
-        usernames = [u for u in raw if u and len(u) >= 3 and " " not in u][:30]
+        ws_text = "".join(b.text for b in ws_response.content if hasattr(b, "text") and b.text)
+        ws_usernames = re.findall(r'@([a-zA-Z0-9._]{3,30})', ws_text)
+        ws_usernames += re.findall(r'instagram\.com/([a-zA-Z0-9._]{3,30})', ws_text)
+        for u in ws_usernames:
+            if u not in usernames:
+                usernames.append(u)
+        usernames = usernames[:30]
+    except Exception:
+        pass
 
     # Step 2: Verify with Apify Profile Scraper
     verified = {}
