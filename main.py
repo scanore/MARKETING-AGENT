@@ -271,86 +271,57 @@ def analyze_tiktok_with_claude(normalized: list, filters: SearchFilters) -> Sear
     return build_tiktok_results(normalized, filters)
 
 
+
 async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
-    """Web search finds influencers, Apify verifies follower counts."""
+    """Hashtag scraper finds real posts -> extract real usernames -> verify profiles."""
     follower_range = f"{filters.min_followers:,} - {filters.max_followers:,}"
+    hashtag = filters.niche.strip().lstrip("#").replace(" ", "")
 
-    # Step 1: Ask Claude (with web search) to find and return influencer data directly
-    prompt = f"""Search Instagram for {filters.niche} influencers from {filters.country} with {follower_range} followers.
-
-Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text, no markdown):
-{{
-  "creators": [
-    {{"username": "handle_without_@", "name": "Full Name", "followers": 50000}},
-    {{"username": "handle2", "name": "Name 2", "followers": 75000}}
-  ]
-}}"""
-
-    response = client.messages.create(
-        model="claude-haiku-4-5-20251001",
-        max_tokens=3000,
-        tools=[{"type": "web_search_20250305", "name": "web_search"}],
-        messages=[{"role": "user", "content": prompt}],
-    )
-
-    # Get all text from response
-    all_text = ""
-    for block in response.content:
-        if hasattr(block, "text") and block.text:
-            all_text += block.text
-
-    # Parse creators from response
-    creators = []
-    try:
-        clean = re.sub(r"```json\s*", "", all_text.strip())
-        clean = re.sub(r"```\s*", "", clean).strip()
-        s = clean.find("{")
-        e = clean.rfind("}") + 1
-        if s >= 0 and e > s:
-            data = json.loads(clean[s:e])
-            creators = data.get("creators", [])
-    except Exception:
-        pass
-
-    # Fallback: if no JSON, ask Claude directly without web search
-    if not creators:
-        fallback = client.messages.create(
-            model="claude-haiku-4-5-20251001",
-            max_tokens=2000,
-            messages=[{"role": "user", "content": f"List {filters.quantity * 2} real Instagram influencers for {filters.niche} in {filters.country} with {follower_range} followers. Return ONLY JSON: {{\"creators\": [{{\"username\": \"handle\", \"name\": \"Full Name\", \"followers\": 50000}}]}}"}],
-        )
+    # Step 1: Scrape hashtag to get real posts and usernames
+    raw_items = []
+    if APIFY_TOKEN:
         try:
-            t = "".join(b.text for b in fallback.content if hasattr(b, "text") and b.text)
-            clean = re.sub(r"```json\s*", "", t.strip())
-            clean = re.sub(r"```\s*", "", clean).strip()
-            s = clean.find("{")
-            e = clean.rfind("}") + 1
-            data = json.loads(clean[s:e])
-            creators = data.get("creators", [])
+            raw_items = await asyncio.wait_for(
+                fetch_instagram_data(hashtag, filters.quantity),
+                timeout=90.0
+            )
         except Exception:
-            creators = []
+            raw_items = []
 
-    # Step 2: Verify with Apify if available
-    usernames = [c.get("username", "") for c in creators if c.get("username")][:20]
+    # Extract unique usernames from posts
+    usernames = []
+    seen = set()
+    for item in raw_items:
+        owner = item.get("ownerUsername", "") or item.get("owner", {}).get("username", "")
+        if owner and owner not in seen:
+            seen.add(owner)
+            usernames.append(owner)
+
+    # Step 2: Verify real follower counts for found usernames
     verified = {}
     if usernames and APIFY_TOKEN:
         try:
             verified = await asyncio.wait_for(
-                verify_instagram_profiles(usernames),
-                timeout=45.0
+                verify_instagram_profiles(usernames[:20]),
+                timeout=60.0
             )
         except Exception:
             verified = {}
 
-    # Step 3: Build results — ONLY from Apify verified profiles
+    # Step 3: Build results from verified profiles only
     influencers = []
 
-    for username, v in verified.items():
+    # Sort verified by closest to target follower range
+    target = (filters.min_followers + filters.max_followers) / 2
+    sorted_verified = sorted(
+        verified.items(),
+        key=lambda x: abs(x[1].get("followers", 0) - target)
+    )
+
+    for username, v in sorted_verified:
         if len(influencers) >= filters.quantity:
             break
         followers = v.get("followers", 0)
-        display_name = v.get("display_name", username)
-
         if followers == 0:
             continue
 
@@ -358,21 +329,22 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
         if followers < filters.min_followers or followers > filters.max_followers:
             continue
 
-        # Format
+        display_name = v.get("display_name", username)
+
         if followers >= 1_000_000:
             followers_str = f"{followers/1_000_000:.1f}M"
             avg_views = f"{int(followers * 0.03 / 1000)}K avg"
             eng_rate = "1.5%"
         elif followers >= 500_000:
-            followers_str = f"{followers/1_000:.0f}K"
+            followers_str = f"{int(followers/1_000)}K"
             avg_views = f"{int(followers * 0.04 / 1000)}K avg"
             eng_rate = "2.1%"
         elif followers >= 100_000:
-            followers_str = f"{followers/1_000:.0f}K"
+            followers_str = f"{int(followers/1_000)}K"
             avg_views = f"{int(followers * 0.05 / 1000)}K avg"
             eng_rate = "3.2%"
         elif followers >= 1_000:
-            followers_str = f"{followers/1_000:.0f}K"
+            followers_str = f"{int(followers/1_000)}K"
             avg_views = f"{int(followers * 0.07 / 1000)}K avg"
             eng_rate = "4.8%"
         else:
@@ -380,7 +352,6 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
             avg_views = "N/A"
             eng_rate = "N/A"
 
-        verified_tag = "✓ Verified" if username in verified else "Web Search"
         influencers.append({
             "name": display_name,
             "handle": f"@{username}",
@@ -392,15 +363,53 @@ Find {filters.quantity * 2} real creators. Return ONLY this JSON (no other text,
             "country": filters.country,
             "profile_url": f"https://instagram.com/{username}",
             "content_style": f"Instagram creator in {filters.niche} niche",
-            "why_good_fit": f"{verified_tag}: {followers_str} followers",
+            "why_good_fit": f"✓ Verified {followers_str} followers via Apify",
         })
+
+    # If filter too strict, add best available outside range
+    if len(influencers) < filters.quantity:
+        for username, v in sorted_verified:
+            if len(influencers) >= filters.quantity:
+                break
+            if any(i["handle"] == f"@{username}" for i in influencers):
+                continue
+            followers = v.get("followers", 0)
+            if followers == 0:
+                continue
+            display_name = v.get("display_name", username)
+            if followers >= 1_000_000:
+                followers_str = f"{followers/1_000_000:.1f}M"
+                avg_views = f"{int(followers * 0.03 / 1000)}K avg"
+                eng_rate = "1.5%"
+            elif followers >= 1_000:
+                followers_str = f"{int(followers/1_000)}K"
+                avg_views = f"{int(followers * 0.05 / 1000)}K avg"
+                eng_rate = "3.5%"
+            else:
+                followers_str = str(followers)
+                avg_views = "N/A"
+                eng_rate = "N/A"
+            influencers.append({
+                "name": display_name,
+                "handle": f"@{username}",
+                "platform": "Instagram",
+                "niche": filters.niche,
+                "estimated_followers": followers_str,
+                "estimated_views": avg_views,
+                "estimated_engagement": eng_rate,
+                "country": filters.country,
+                "profile_url": f"https://instagram.com/{username}",
+                "content_style": f"Instagram creator in {filters.niche} niche",
+                "why_good_fit": f"✓ Verified {followers_str} followers (outside requested range)",
+            })
 
     verified_count = len(verified)
     return SearchResponse(
         influencers=influencers[:filters.quantity],
-        search_summary=f"{len(influencers)} influencers encontrados, {verified_count} verificados con Apify.",
-        data_source=f"Web Search + Apify ({verified_count} verificados)",
+        search_summary=f"{len(influencers)} influencers encontrados de {len(usernames)} perfiles scrapeados. {verified_count} verificados con Apify.",
+        data_source=f"Apify Hashtag + Profile Verificado ({verified_count} perfiles)",
     )
+
 
 
 def build_web_search_prompt(filters: SearchFilters) -> str:
