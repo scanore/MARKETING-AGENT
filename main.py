@@ -371,20 +371,20 @@ Return ONLY JSON:
 
         # Format
         if followers >= 1_000_000:
-            followers_str = f"{{followers/1_000_000:.1f}}M"
-            avg_views = f"{{int(followers * 0.03 / 1000)}}K avg"
+            followers_str = f"{followers/1_000_000:.1f}M"
+            avg_views = f"{int(followers * 0.03 / 1000)}K avg"
             eng_rate = "1.5%"
         elif followers >= 500_000:
-            followers_str = f"{{followers/1_000:.0f}}K"
-            avg_views = f"{{int(followers * 0.04 / 1000)}}K avg"
+            followers_str = f"{followers/1_000:.0f}K"
+            avg_views = f"{int(followers * 0.04 / 1000)}K avg"
             eng_rate = "2.1%"
         elif followers >= 100_000:
-            followers_str = f"{{followers/1_000:.0f}}K"
-            avg_views = f"{{int(followers * 0.05 / 1000)}}K avg"
+            followers_str = f"{followers/1_000:.0f}K"
+            avg_views = f"{int(followers * 0.05 / 1000)}K avg"
             eng_rate = "3.2%"
         elif followers >= 1_000:
-            followers_str = f"{{followers/1_000:.0f}}K"
-            avg_views = f"{{int(followers * 0.07 / 1000)}}K avg"
+            followers_str = f"{followers/1_000:.0f}K"
+            avg_views = f"{int(followers * 0.07 / 1000)}K avg"
             eng_rate = "4.8%"
         else:
             followers_str = str(followers)
@@ -394,16 +394,16 @@ Return ONLY JSON:
         verified_tag = "✓ Verified" if username in verified else "Web Search"
         influencers.append({{
             "name": display_name,
-            "handle": f"@{{username}}",
+            "handle": f"@{username}",
             "platform": "Instagram",
             "niche": filters.niche,
             "estimated_followers": followers_str,
             "estimated_views": avg_views,
             "estimated_engagement": eng_rate,
             "country": filters.country,
-            "profile_url": f"https://instagram.com/{{username}}",
-            "content_style": f"Instagram creator in {{filters.niche}} niche",
-            "why_good_fit": f"{{verified_tag}}: {{followers_str}} followers",
+            "profile_url": f"https://instagram.com/{username}",
+            "content_style": f"Instagram creator in {filters.niche} niche",
+            "why_good_fit": f"{verified_tag}: {followers_str} followers",
         }})
 
     # If still not enough, add remaining without filter
@@ -412,40 +412,40 @@ Return ONLY JSON:
             if len(influencers) >= filters.quantity:
                 break
             username = creator.get("username", "")
-            if not username or any(i["handle"] == f"@{{username}}" for i in influencers):
+            if not username or any(i["handle"] == f"@{username}" for i in influencers):
                 continue
             followers = creator.get("followers", int(target))
             if followers >= 1_000_000:
-                followers_str = f"{{followers/1_000_000:.1f}}M"
-                avg_views = f"{{int(followers * 0.03 / 1000)}}K avg"
+                followers_str = f"{followers/1_000_000:.1f}M"
+                avg_views = f"{int(followers * 0.03 / 1000)}K avg"
                 eng_rate = "1.5%"
             elif followers >= 1_000:
-                followers_str = f"{{followers/1_000:.0f}}K"
-                avg_views = f"{{int(followers * 0.05 / 1000)}}K avg"
+                followers_str = f"{followers/1_000:.0f}K"
+                avg_views = f"{int(followers * 0.05 / 1000)}K avg"
                 eng_rate = "3.5%"
             else:
-                followers_str = f"{{int(target/1000):.0f}}K"
-                avg_views = f"{{int(target * 0.05 / 1000)}}K avg"
+                followers_str = f"{int(target/1000):.0f}K"
+                avg_views = f"{int(target * 0.05 / 1000)}K avg"
                 eng_rate = "3.5%"
             influencers.append({{
                 "name": creator.get("name", username),
-                "handle": f"@{{username}}",
+                "handle": f"@{username}",
                 "platform": "Instagram",
                 "niche": filters.niche,
                 "estimated_followers": followers_str,
                 "estimated_views": avg_views,
                 "estimated_engagement": eng_rate,
                 "country": filters.country,
-                "profile_url": f"https://instagram.com/{{username}}",
-                "content_style": f"Instagram creator in {{filters.niche}} niche",
-                "why_good_fit": f"Web Search: {{followers_str}} followers (estimated)",
+                "profile_url": f"https://instagram.com/{username}",
+                "content_style": f"Instagram creator in {filters.niche} niche",
+                "why_good_fit": f"Web Search: {followers_str} followers (estimated)",
             }})
 
     verified_count = len(verified)
     return SearchResponse(
         influencers=influencers[:filters.quantity],
-        search_summary=f"{{len(influencers)}} influencers encontrados, {{verified_count}} verificados con Apify.",
-        data_source=f"Web Search + Apify ({{verified_count}} verificados)",
+        search_summary=f"{len(influencers)} influencers encontrados, {verified_count} verificados con Apify.",
+        data_source=f"Web Search + Apify ({verified_count} verificados)",
     )
 
 
