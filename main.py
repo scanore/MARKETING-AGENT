@@ -293,32 +293,58 @@ Rules:
         messages=[{"role": "user", "content": search_prompt}],
     )
 
-    # Extract usernames from ALL content blocks
+    # Extract usernames from ALL content blocks including tool_result
     usernames = []
     all_text = ""
     for block in search_response.content:
         if hasattr(block, "text") and block.text:
-            all_text += block.text
+            all_text += block.text + " "
+        # Also extract from tool results (web search returns here)
+        if hasattr(block, "type") and block.type == "tool_result":
+            for sub in (block.content or []):
+                if hasattr(sub, "text"):
+                    all_text += sub.text + " "
+        if hasattr(block, "content") and isinstance(block.content, list):
+            for sub in block.content:
+                if hasattr(sub, "text"):
+                    all_text += sub.text + " "
 
-    # Try to parse JSON directly
+    # Try to parse JSON from text
     try:
         clean = re.sub(r"```json\s*", "", all_text.strip())
         clean = re.sub(r"```\s*", "", clean).strip()
-        start = clean.find("{")
-        end = clean.rfind("}") + 1
-        if start >= 0 and end > start:
-            data = json.loads(clean[start:end])
+        idx = clean.find('{"usernames"')
+        if idx >= 0:
+            end = clean.find('}', idx) + 1
+            data = json.loads(clean[idx:end])
             usernames = data.get("usernames", [])[:40]
     except Exception:
         pass
 
-    # Fallback: extract @mentions or usernames from text
+    # Fallback: extract @mentions or instagram.com URLs
     if not usernames:
-        import re as re2
-        found = re2.findall(r'@([a-zA-Z0-9._]{3,30})', all_text)
+        found = re.findall(r'@([a-zA-Z0-9._]{3,30})', all_text)
         if not found:
-            found = re2.findall(r'instagram\.com/([a-zA-Z0-9._]{3,30})', all_text)
+            found = re.findall(r'instagram\.com/([a-zA-Z0-9._]{3,30})', all_text)
         usernames = list(dict.fromkeys(found))[:40]
+    
+    # Last resort: ask Claude directly without web search
+    if not usernames:
+        direct = client.messages.create(
+            model="claude-haiku-4-5-20251001",
+            max_tokens=500,
+            messages=[{"role": "user", "content": f'List {filters.quantity * 3} real Instagram usernames for {filters.niche} influencers from {filters.country} with {follower_range} followers. Return ONLY: {{"usernames": ["user1", "user2"]}}'}],
+        )
+        try:
+            t = "".join(b.text for b in direct.content if hasattr(b, "text") and b.text)
+            clean = re.sub(r"```json\s*", "", t.strip())
+            clean = re.sub(r"```\s*", "", clean).strip()
+            s = clean.find("{")
+            e = clean.rfind("}") + 1
+            data = json.loads(clean[s:e])
+            usernames = data.get("usernames", [])[:40]
+        except Exception:
+            pass
 
     # Step 2: Verify real metrics with Apify (with short timeout)
     verified = {}
