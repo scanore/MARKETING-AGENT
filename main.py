@@ -428,9 +428,16 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
             })
 
     verified_count = len(verified)
+    summary = f"Scrapeados: {len(usernames)} usernames. Verificados: {verified_count}. En rango: {len(influencers)}."
+    if len(usernames) == 0:
+        summary = "ERROR: Web search no encontró usernames. Intenta con otro nicho."
+    elif verified_count == 0:
+        summary = f"ERROR: Apify no verificó ningún perfil de {len(usernames)} encontrados: {usernames[:5]}"
+    elif len(influencers) == 0:
+        summary = f"ERROR: {verified_count} verificados pero ninguno en rango {filters.min_followers:,}-{filters.max_followers:,}. Seguidores encontrados: {[v.get('followers',0) for v in verified.values()][:5]}"
     return SearchResponse(
         influencers=influencers[:filters.quantity],
-        search_summary=f"{len(influencers)} influencers. {verified_count} verificados con Apify. {len(usernames)} encontrados via web search.",
+        search_summary=summary,
         data_source=f"Web Search + Apify ({verified_count} verificados)",
     )
 
