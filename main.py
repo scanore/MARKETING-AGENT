@@ -436,10 +436,8 @@ async def search_instagram_verified(filters: SearchFilters) -> SearchResponse:
         summary = "ERROR: Web search no encontró usernames. Intenta con otro nicho."
     elif verified_count == 0:
         summary = f"ERROR: Apify no verificó ningún perfil de {len(usernames)} encontrados: {usernames[:5]}"
-    elif len(influencers) == 0:
-        # Show what was found even if outside range
-        summary = f"{verified_count} perfiles verificados pero fuera del rango {filters.min_followers:,}-{filters.max_followers:,}. Mostrando mejores disponibles."
-        # Add them anyway sorted by followers
+    elif len(influencers) < filters.quantity:
+        summary = f"{verified_count} perfiles verificados. Mostrando todos los disponibles (algunos fuera del rango solicitado)."
         for username, v in sorted(verified.items(), key=lambda x: x[1].get("followers",0), reverse=True):
             if len(influencers) >= filters.quantity:
                 break
